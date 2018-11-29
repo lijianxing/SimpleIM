@@ -1,0 +1,130 @@
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Web sockets test</title>
+    <script type="text/javascript">
+        var ws;
+        var seqid = 0;
+        function ToggleConnectionClicked() {
+            try {
+                ws = new WebSocket("ws://localhost:18090/sub");//连接服务器
+                ws.binaryType = "arraybuffer";
+                ws.onopen = function (event) { 
+                    // login
+                    Login();
+
+                    setInterval(SendData, 3000);
+
+                    alert("已经与服务器建立了连接rn当前连接状态：" + this.readyState); 
+                };
+                ws.onmessage = function (event) { 
+                    console.log("接收到服务器发送的数据：rn" + event.data); 
+                    ReadData(event.data);
+                };
+                ws.onclose = function (event) { alert("已经与服务器断开连接rn当前连接状态：" + this.readyState); };
+                ws.onerror = function (event) { alert("WebSocket异常！"); };
+            } catch (ex) {
+                alert(ex.message);
+            }
+        };
+
+        function Login() {
+            var proto = {
+                ver: 1,
+                oper: 0,
+                seqid: seqid++,
+                body: null,
+            };
+            WriteProto(proto);
+        }
+        function SendData() {
+            try {
+                var proto = {
+                    ver: 1,
+                    oper: 12,
+                    seqid: seqid++,
+                    body: {tkey:"tval"},
+                };
+                WriteProto(proto);
+            } catch (ex) {
+                alert(ex.message);
+            }
+        };
+
+        function WriteProto(proto) {
+            // packet len
+            var body = "";
+            var bodyLen = 0;
+            if (proto.body != null) {
+                body = JSON.stringify(proto.body);
+                bodyLen = body.length;
+            }
+            var packetLen = 16 + bodyLen;
+
+            var arrayBuffer = new ArrayBuffer(packetLen);
+            var dataView = new DataView(arrayBuffer);
+
+            // packetlen
+            dataView.setUint32(0, packetLen, false);
+            dataView.setUint16(4, 16, false);
+            dataView.setUint16(6, proto.ver, false);
+            dataView.setUint32(8, proto.oper, false);
+            dataView.setUint32(12, proto.seqid, false);
+
+            for (var i=0; i<bodyLen; i++) {
+                dataView.setUint8(16+i, body[i]);
+            }
+            ws.send(dataView);
+        }
+
+        var receive = [];
+        function ReadData(buffer) {
+            receive = receive.concat(Array.from(new Uint8Array(buffer)));
+            if (receive.length < 16) {
+                return;
+            }
+            var dv = new DataView(new Uint8Array(receive).buffer);
+            var pLen = dv.getUint32(0);
+            if (receive.length < pLen) {
+                return;
+            }
+
+            ReadProto(dv);
+
+            receive = receive.slice(pLen);
+        }
+
+        function ReadProto(dataView) {
+            packetLen = dataView.getUint32(0);
+            headerLen = dataView.getUint16(4);
+
+            var proto = {};
+            proto.ver = dataView.getUint16(6);
+            proto.oper = dataView.getUint32(8);
+            proto.seqid = dataView.getUint32(12);
+            proto.body = "";
+
+            var bodyLen = packetLen - headerLen;
+            for (var i=0; i<bodyLen; i++) {
+                proto.body += String.fromCharCode(dataView.getUint8(headerLen + i));
+            }
+
+            console.log("receive:" + JSON.stringify(proto));
+        }
+
+        function seestate() {
+            alert(ws.readyState);
+        }
+
+    </script>
+</head>
+
+<body>
+    <button id='ToggleConnection' type="button" onclick='ToggleConnectionClicked();'>连接服务器</button><br /><br />
+    <!--
+    <button id='ToggleConnection' type="button" onclick='SendData();'>发送我的名字：lijx</button><br /><br />
+    -->
+    <button id='ToggleConnection' type="button" onclick='seestate();'>查看状态</button><br /><br />
+</body>
+
+</html>
