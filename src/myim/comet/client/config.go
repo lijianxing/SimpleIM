@@ -24,6 +24,9 @@ type Config struct {
 	Log     string `goconf:"base:log"`
 	MaxProc int    `goconf:"base:maxproc"`
 
+	AppId  string `goconf:"base:appid"`
+	UserId string `goconf:"base:userid"`
+
 	// proto section
 	TCPAddr       string `goconf:"proto:tcp.addr"`
 	WebsocketAddr string `goconf:"proto:websocket.addr"`

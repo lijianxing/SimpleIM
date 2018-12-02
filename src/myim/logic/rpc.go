@@ -263,8 +263,20 @@ func (r *RPC) doHeartbeat(serverId int32, key string, req *HeartbeatReq) (resp *
 
 	log.Debug("receive heartbeat msg.serverId:%d, key:%s", serverId, key)
 
+	var (
+		appId  string
+		userId string
+		seq    int32
+	)
+
+	if appId, userId, seq, err = decodeUserKey(key); err != nil {
+		log.Error("decode user key failed, key:%s, err:%v", key, err)
+		err = ErrInvalidArgument
+		return
+	}
+
 	// 路由维护
-	if err = refreshRoute(serverId, key); err != nil {
+	if err = refreshRoute(serverId, appId, userId, seq); err != nil {
 		log.Error("hearbeat refresh route failed.key:%s, err:%v", key, err)
 	}
 
@@ -274,26 +286,22 @@ func (r *RPC) doHeartbeat(serverId int32, key string, req *HeartbeatReq) (resp *
 	return
 }
 
-func (r *RPC) doSendMsg(serverId int32, key string, msgReq *SendMsgReq) (resp SendMsgResp, err error) {
-	if len(key) == 0 {
+func (r *RPC) doSendMsg(serverId int32, key string, req *SendMsgReq) (resp *SendMsgResp, err error) {
+	if len(key) == 0 || req == nil {
 		err = ErrInvalidArgument
 		return
 	}
 
-	// 路由维护
-	if err = refreshRoute(serverId, key); err != nil {
-		log.Error("sendmsg refresh route failed.key:%s, err:%v", key, err)
-	}
+	log.Debug("receive sendmsg req:%v", *req)
 
-	return
-}
-
-func refreshRoute(serverId int32, key string) (err error) {
 	var (
-		appId   string
-		userId  string
-		seq     int32
-		session *Session
+		appId  string
+		userId string
+		seq    int32
+
+		// sessions
+		targetUserIds  []string
+		targetSessions []*Session
 	)
 
 	if appId, userId, seq, err = decodeUserKey(key); err != nil {
@@ -301,6 +309,76 @@ func refreshRoute(serverId int32, key string) (err error) {
 		err = ErrInvalidArgument
 		return
 	}
+
+	// 路由维护
+	if err = refreshRoute(serverId, appId, userId, seq); err != nil {
+		log.Error("sendmsg refresh route failed.key:%s, err:%v", key, err)
+	}
+
+	// save msg to db and get msgid
+	// TODO
+	msgId := int64(100)
+
+	// reply to sender
+	resp = &SendMsgResp{
+		MsgId: msgId,
+	}
+
+	// msg notify
+	if req.TargetType == define.TARGET_USER {
+		targetUserIds = append(targetUserIds, req.TargetId)
+	} else if req.TargetType == define.TARGET_GROUP {
+		// TODO: get group members
+	} else {
+		// error
+	}
+
+	// get target user sessions
+	args := make([]*GetRouteArg, len(targetUserIds))
+	for i, targetUserId := range targetUserIds {
+		args[i] = &GetRouteArg{
+			Key: encodeRouteKey(appId, targetUserId),
+		}
+	}
+	if targetSessions, err = Router.MGet(args); err != nil {
+		log.Error("get target user sessions failed.err:%v", err)
+		return
+	}
+	//implied: len(targetSessions) == len(targetUserIds)
+
+	// 按server分组
+	serverKeyMap := make(map[int32][]string)
+	for i, session := range targetSessions {
+		if session == nil {
+			continue
+		}
+		keys := serverKeyMap[session.ServerId]
+		keys = append(keys, encodeUserKey(appId, targetUserIds[i], session.Seq))
+		serverKeyMap[session.ServerId] = keys
+	}
+
+	// 发送msg
+	op := define.OP_MSG_NOTIFY
+	notify := MsgNotify{
+		FromUserId: userId,
+		TargetType: req.TargetType,
+		TargetId:   req.TargetId,
+		MsgMeta:    req.MsgMeta,
+		MsgData:    req.MsgData,
+		Tag:        req.Tag,
+	}
+	data, _ := json.Marshal(notify)
+
+	for srvId, userIds := range serverKeyMap {
+		mPushComet(srvId, userIds, op, data)
+	}
+
+	return
+}
+
+func refreshRoute(serverId int32, appId string, userId string, seq int32) (err error) {
+
+	var session *Session
 	routeKey := encodeRouteKey(appId, userId)
 
 	if session, err = Router.Get(&GetRouteArg{Key: routeKey}); err == nil {

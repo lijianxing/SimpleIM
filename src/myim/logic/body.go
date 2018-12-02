@@ -37,6 +37,25 @@ type SendMsgResp struct {
 	MsgId int64 `json:"msg_id"`
 }
 
+type MsgNotify struct {
+	FromUserId string `json:"from_userid"`
+
+	// 1:user 2:group
+	TargetType int    `json:"target_type"`
+	TargetId   string `json:"target_id"`
+
+	// 应用消息数据
+	// 应用消息元数据(可选, 例如存放发送方的一些附加信息,昵称/头像url什么的)
+	MsgMeta string `json:"msg_meta"`
+	MsgData string `json:"msg_data"`
+
+	// 应用消息标记(可选填, 可用于搜索过滤, 例如存放咨询订单号)
+	Tag string `json:"tag"`
+}
+
+type MsgNotifyAck struct {
+}
+
 type LogoutReq struct {
 }
 

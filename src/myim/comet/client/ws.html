@@ -36,7 +36,9 @@
                 ver: 1,
                 op: 0,
                 seqid: seqid++,
-                body: null,
+                body: {
+                    user_info: {app_id:"bilin", user_id:"456"}
+                },
             };
             ws.send(JSON.stringify(proto));
         }

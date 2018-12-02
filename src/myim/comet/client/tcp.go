@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/binary"
+	"fmt"
 	"net"
 	"time"
 
@@ -25,7 +26,7 @@ func initTCP() {
 	// time.Sleep(time.Second * 31)
 	proto.Operation = OP_LOGIN
 	proto.SeqId = seqId
-	proto.Body = []byte("{\"user_info\":{\"app_id\":\"bilin\", \"user_id\":\"123\"}}")
+	proto.Body = []byte(fmt.Sprintf("{\"user_info\":{\"app_id\":\"%s\", \"user_id\":\"%s\"}}", Conf.AppId, Conf.UserId))
 	if err = tcpWriteProto(wr, proto); err != nil {
 		log.Error("tcpWriteProto() error(%v)", err)
 		return
@@ -59,6 +60,19 @@ func initTCP() {
 				return
 			}
 			seqId++
+
+			// send msg
+			if Conf.UserId != "456" {
+				proto1.Operation = OP_SEND_MSG
+				proto1.SeqId = seqId
+				proto1.Body = []byte("{\"target_type\":1, \"target_id\":\"456\",\"msg_data\":\"hello\"}")
+				if err = tcpWriteProto(wr, proto1); err != nil {
+					log.Error("tcpWriteProto() error(%v)", err)
+					return
+				}
+				seqId++
+			}
+
 			time.Sleep(10000 * time.Millisecond)
 		}
 	}()
@@ -75,9 +89,11 @@ func initTCP() {
 				return
 			}
 		} else if proto.Operation == OP_TEST_REPLY {
-			log.Debug("body: %s", string(proto.Body))
+			log.Debug("test reply body: %s", string(proto.Body))
 		} else if proto.Operation == OP_SEND_MSG_REPLY {
-			log.Debug("body: %s", string(proto.Body))
+			log.Debug("msg reply body: %s", string(proto.Body))
+		} else if proto.Operation == OP_MSG_NOTIFY {
+			log.Debug("msg notify body: %s", string(proto.Body))
 		}
 	}
 }

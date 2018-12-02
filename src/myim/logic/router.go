@@ -99,25 +99,36 @@ func (rr *RedisRouter) Get(arg *GetRouteArg) (session *Session, err error) {
 }
 
 func (rr *RedisRouter) MGet(args []*GetRouteArg) (res []*Session, err error) {
-	// if len(args) == 0 {
-	// 	return
-	// }
+	if len(args) == 0 {
+		return
+	}
 
-	// conn := rr.pool.Get()
-	// if conn == nil {
-	// 	err = ErrInternalError
-	// 	return
-	// }
-	// defer conn.Close()
+	conn := rr.pool.Get()
+	if conn == nil {
+		err = ErrInternalError
+		return
+	}
+	defer conn.Close()
 
-	// var keys []string
-	// for _, arg := range args {
-	// 	keys = append(keys, makeKey(arg.Key))
-	// }
-	// if datas, err := redis.String(conn.Do("MGET", keys)); err == nil {
-	// 	for _, data := range datas {
-	// 	}
-	// }
+	var (
+		keys    []interface{}
+		session *Session
+	)
+
+	for _, arg := range args {
+		keys = append(keys, makeKey(arg.Key))
+	}
+
+	if datas, err := redis.Strings(conn.Do("MGET", keys...)); err == nil {
+		for _, data := range datas {
+			if len(data) > 0 {
+				session, err = unserializeSession(data)
+				res = append(res, session)
+			} else {
+				res = append(res, nil)
+			}
+		}
+	}
 	return
 }
 
