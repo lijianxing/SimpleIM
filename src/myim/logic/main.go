@@ -23,8 +23,23 @@ func main() {
 
 	DefaultStat = NewStat()
 
-	// router rpc
-	if err := InitRouter(Conf.RouterRPCAddrs); err != nil {
+	// commet rpc
+	err := InitComet(Conf.CometRPCAddrs, CometOptions{
+		RoutineSize: Conf.RoutineSize,
+		RoutineChan: Conf.RoutineChan,
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	// init router
+	err = InitRedisRouter(&RedisConfig{
+		Addr:        Conf.RedisAddr,
+		MaxActive:   Conf.RedisPoolMaxActive,
+		MaxIdle:     Conf.RedisPoolMaxIdle,
+		IdleTimeout: Conf.RedisPoolIdleTimeout,
+	})
+	if err != nil {
 		panic(err)
 	}
 

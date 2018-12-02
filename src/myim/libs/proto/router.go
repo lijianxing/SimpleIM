@@ -1,31 +1,24 @@
 package proto
 
 type PutArg struct {
-	UserId int64
+	UserId string
 	Server int32
-	RoomId int32
 }
 
 type PutReply struct {
-	Seq int32
 }
 
 type DelArg struct {
-	UserId int64
+	UserId string
 	Seq    int32
-	RoomId int32
 }
 
 type DelReply struct {
 	Has bool
 }
 
-type DelServerArg struct {
-	Server int32
-}
-
 type GetArg struct {
-	UserId int64
+	UserId string
 }
 
 type GetReply struct {
@@ -34,43 +27,15 @@ type GetReply struct {
 }
 
 type GetAllReply struct {
-	UserIds  []int64
+	UserIds  []string
 	Sessions []*GetReply
 }
 
 type MGetArg struct {
-	UserIds []int64
+	UserIds []string
 }
 
 type MGetReply struct {
-	UserIds  []int64
+	UserIds  []string
 	Sessions []*GetReply
-}
-
-type CountReply struct {
-	Count int32
-}
-
-type RoomCountArg struct {
-	RoomId int32
-}
-
-type RoomCountReply struct {
-	Count int32
-}
-
-type AllRoomCountReply struct {
-	Counter map[int32]int32
-}
-
-type AllServerCountReply struct {
-	Counter map[int32]int32
-}
-
-type UserCountArg struct {
-	UserId int64
-}
-
-type UserCountReply struct {
-	Count int32
 }

@@ -117,11 +117,7 @@ func (p *Proto) WriteTCP(wr *bufio.Writer) (err error) {
 		buf     []byte
 		packLen int32
 	)
-	if p.Operation == define.OP_RAW {
-		// write without buffer, job concact proto into raw buffer
-		_, err = wr.WriteRaw(p.Body)
-		return
-	}
+
 	packLen = RawHeaderSize + int32(len(p.Body))
 	if buf, err = wr.Peek(RawHeaderSize); err != nil {
 		return
@@ -138,62 +134,27 @@ func (p *Proto) WriteTCP(wr *bufio.Writer) (err error) {
 }
 
 func (p *Proto) ReadWebsocket(ws *websocket.Conn) (err error) {
-	var (
-		bodyLen   int
-		headerLen int16
-		packLen   int32
-		buf       []byte
-	)
-	if _, buf, err = ws.ReadMessage(); err != nil {
+	op, data, err := ws.ReadMessage()
+	if err != nil {
 		return
 	}
-	if len(buf) < RawHeaderSize {
-		return ErrProtoPackLen
-	}
-	packLen = binary.BigEndian.Int32(buf[PackOffset:HeaderOffset])
-	headerLen = binary.BigEndian.Int16(buf[HeaderOffset:VerOffset])
-	p.Ver = binary.BigEndian.Int16(buf[VerOffset:OperationOffset])
-	p.Operation = binary.BigEndian.Int32(buf[OperationOffset:SeqIdOffset])
-	p.SeqId = binary.BigEndian.Int32(buf[SeqIdOffset:])
-	if packLen > MaxPackSize {
-		fmt.Printf("wx1 len:%d, max size:%d\n", packLen, MaxPackSize)
-		return ErrProtoPackLen
-	}
-	if headerLen != RawHeaderSize {
-		fmt.Printf("wx2 len:%d, max size:%d\n", headerLen, RawHeaderSize)
-		return ErrProtoHeaderLen
-	}
-	if bodyLen = int(packLen - int32(headerLen)); bodyLen > 0 {
-		p.Body = buf[headerLen:packLen]
+
+	if op == websocket.TextMessage {
+		if err = json.Unmarshal(data, p); err != nil {
+			return
+		}
 	} else {
-		p.Body = nil
+		err = errors.New(fmt.Sprintf("not supported websocket op:%d", op))
 	}
 	return
 }
 
 func (p *Proto) WriteWebsocket(ws *websocket.Conn) (err error) {
-	var (
-		buf     []byte
-		packLen int
-	)
-	if p.Operation == define.OP_RAW {
-		err = ws.WriteMessage(websocket.BinaryMessage, p.Body)
+	// json msg
+	var msg []byte
+	if msg, err = json.Marshal(p); err != nil {
 		return
 	}
-	packLen = RawHeaderSize + len(p.Body)
-	if err = ws.WriteHeader(websocket.BinaryMessage, packLen); err != nil {
-		return
-	}
-	if buf, err = ws.Peek(RawHeaderSize); err != nil {
-		return
-	}
-	binary.BigEndian.PutInt32(buf[PackOffset:], int32(packLen))
-	binary.BigEndian.PutInt16(buf[HeaderOffset:], int16(RawHeaderSize))
-	binary.BigEndian.PutInt16(buf[VerOffset:], p.Ver)
-	binary.BigEndian.PutInt32(buf[OperationOffset:], p.Operation)
-	binary.BigEndian.PutInt32(buf[SeqIdOffset:], p.SeqId)
-	if p.Body != nil {
-		err = ws.WriteBody(p.Body)
-	}
+	err = ws.WriteMessage(websocket.TextMessage, msg)
 	return
 }

@@ -18,6 +18,14 @@ type Stat struct {
 
 	// nodes
 	RouterNodes map[string]string `json:"router_nodes"`
+
+	// messages
+	PushMsg      uint64 `json:"push_msg"`
+	BroadcastMsg uint64 `json:"broadcast_msg"`
+
+	// miss
+	PushMsgFailed      uint64 `json:"push_msg_failed"`
+	BroadcastMsgFailed uint64 `json:"broadcast_msg_failed"`
 }
 
 func NewStat() *Stat {
@@ -27,7 +35,6 @@ func NewStat() *Stat {
 }
 
 func (s *Stat) Info() *Stat {
-	s.RouterNodes = Conf.RouterRPCAddrs
 	return s
 }
 
@@ -35,6 +42,11 @@ func (s *Stat) Reset() {
 	atomic.StoreUint64(&s.MsgSucceeded, 0)
 	atomic.StoreUint64(&s.MsgFailed, 0)
 	atomic.StoreUint64(&s.SyncTimes, 0)
+
+	atomic.StoreUint64(&s.PushMsg, 0)
+	atomic.StoreUint64(&s.BroadcastMsg, 0)
+	atomic.StoreUint64(&s.PushMsgFailed, 0)
+	atomic.StoreUint64(&s.BroadcastMsgFailed, 0)
 }
 
 func (s *Stat) procSpeed() {
@@ -59,4 +71,20 @@ func (s *Stat) IncrMsgFailed() {
 
 func (s *Stat) IncrSyncTimes() {
 	atomic.AddUint64(&s.SyncTimes, 1)
+}
+
+func (s *Stat) IncrPushMsg() {
+	atomic.AddUint64(&s.PushMsg, 1)
+}
+
+func (s *Stat) IncrBroadcastMsg() {
+	atomic.AddUint64(&s.BroadcastMsg, 1)
+}
+
+func (s *Stat) IncrPushMsgFailed() {
+	atomic.AddUint64(&s.PushMsgFailed, 1)
+}
+
+func (s *Stat) IncrBroadcastMsgFailed() {
+	atomic.AddUint64(&s.BroadcastMsgFailed, 1)
 }

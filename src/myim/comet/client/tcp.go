@@ -25,7 +25,7 @@ func initTCP() {
 	// time.Sleep(time.Second * 31)
 	proto.Operation = OP_LOGIN
 	proto.SeqId = seqId
-	proto.Body = []byte("test")
+	proto.Body = []byte("{\"user_info\":{\"app_id\":\"bilin\", \"user_id\":\"123\"}}")
 	if err = tcpWriteProto(wr, proto); err != nil {
 		log.Error("tcpWriteProto() error(%v)", err)
 		return

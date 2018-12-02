@@ -1,8 +1,7 @@
 package main
 
 import (
-	"bufio"
-	"encoding/binary"
+	"encoding/json"
 	"time"
 
 	log "github.com/thinkboy/log4go"
@@ -17,8 +16,6 @@ func initWebsocket() {
 		log.Error("websocket.Dial(\"%s\") error(%v)", Conf.WebsocketAddr, err)
 		return
 	}
-	wr := bufio.NewWriter(conn)
-	rd := bufio.NewReader(conn)
 	proto := new(Proto)
 	proto.Ver = 1
 	// auth
@@ -28,11 +25,11 @@ func initWebsocket() {
 	seqId := int32(0)
 	proto.SeqId = seqId
 	proto.Body = []byte("{\"test\":1}")
-	if err = websocketWriteProto(wr, proto); err != nil {
+	if err = websocketWriteProto(conn, proto); err != nil {
 		log.Error("websocketWriteProto() error(%v)", err)
 		return
 	}
-	if err = websocketReadProto(rd, proto); err != nil {
+	if err = websocketReadProto(conn, proto); err != nil {
 		log.Error("websocketReadProto() error(%v)", err)
 		return
 	}
@@ -46,7 +43,7 @@ func initWebsocket() {
 			proto1.Operation = OP_HEARTBEAT
 			proto1.SeqId = seqId
 			proto1.Body = nil
-			if err = websocketWriteProto(wr, proto1); err != nil {
+			if err = websocketWriteProto(conn, proto1); err != nil {
 				log.Error("tcpWriteProto() error(%v)", err)
 				return
 			}
@@ -56,7 +53,7 @@ func initWebsocket() {
 			// op_test
 			proto1.Operation = OP_TEST
 			proto1.SeqId = seqId
-			if err = websocketWriteProto(wr, proto1); err != nil {
+			if err = websocketWriteProto(conn, proto1); err != nil {
 				log.Error("tcpWriteProto() error(%v)", err)
 				return
 			}
@@ -66,7 +63,7 @@ func initWebsocket() {
 	}()
 	// reader
 	for {
-		if err = websocketReadProto(rd, proto); err != nil {
+		if err = websocketReadProto(conn, proto); err != nil {
 			log.Error("tcpReadProto() error(%v)", err)
 			return
 		}
@@ -84,96 +81,15 @@ func initWebsocket() {
 	}
 }
 
-/*
 func websocketReadProto(conn *websocket.Conn, p *Proto) error {
 	msg, _ := json.Marshal(p)
 	log.Debug("%s", string(msg))
 	return websocket.JSON.Receive(conn, p)
 }
-*/
 
-/*
 func websocketWriteProto(conn *websocket.Conn, p *Proto) (err error) {
 	if p.Body == nil {
 		p.Body = []byte("{}")
 	}
 	return websocket.JSON.Send(conn, p)
-}
-*/
-
-func websocketWriteProto(wr *bufio.Writer, proto *Proto) (err error) {
-	// write
-	if err = binary.Write(wr, binary.BigEndian, uint32(rawHeaderLen)+uint32(len(proto.Body))); err != nil {
-		return
-	}
-	if err = binary.Write(wr, binary.BigEndian, rawHeaderLen); err != nil {
-		return
-	}
-	if err = binary.Write(wr, binary.BigEndian, proto.Ver); err != nil {
-		return
-	}
-	if err = binary.Write(wr, binary.BigEndian, proto.Operation); err != nil {
-		return
-	}
-	if err = binary.Write(wr, binary.BigEndian, proto.SeqId); err != nil {
-		return
-	}
-	if proto.Body != nil {
-		log.Debug("cipher body: %v", proto.Body)
-		if err = binary.Write(wr, binary.BigEndian, proto.Body); err != nil {
-			return
-		}
-	}
-	err = wr.Flush()
-	return
-}
-
-func websocketReadProto(rd *bufio.Reader, proto *Proto) (err error) {
-	var (
-		packLen   int32
-		headerLen int16
-	)
-	// read
-	if err = binary.Read(rd, binary.BigEndian, &packLen); err != nil {
-		return
-	}
-	log.Debug("packLen: %d", packLen)
-	if err = binary.Read(rd, binary.BigEndian, &headerLen); err != nil {
-		return
-	}
-	log.Debug("headerLen: %d", headerLen)
-	if err = binary.Read(rd, binary.BigEndian, &proto.Ver); err != nil {
-		return
-	}
-	log.Debug("ver: %d", proto.Ver)
-	if err = binary.Read(rd, binary.BigEndian, &proto.Operation); err != nil {
-		return
-	}
-	log.Debug("operation: %d", proto.Operation)
-	if err = binary.Read(rd, binary.BigEndian, &proto.SeqId); err != nil {
-		return
-	}
-	log.Debug("seqId: %d", proto.SeqId)
-	var (
-		n       = int(0)
-		t       = int(0)
-		bodyLen = int(packLen - int32(headerLen))
-	)
-	log.Debug("read body len: %d", bodyLen)
-	if bodyLen > 0 {
-		proto.Body = make([]byte, bodyLen)
-		for {
-			if t, err = rd.Read(proto.Body[n:]); err != nil {
-				return
-			}
-			if n += t; n == bodyLen {
-				break
-			} else if n < bodyLen {
-			} else {
-			}
-		}
-	} else {
-		proto.Body = nil
-	}
-	return
 }

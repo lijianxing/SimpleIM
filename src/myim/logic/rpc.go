@@ -5,6 +5,7 @@ import (
 	"myim/libs/define"
 	inet "myim/libs/net"
 	"myim/libs/proto"
+	"myim/libs/util"
 	"net"
 	"net/rpc"
 
@@ -57,18 +58,25 @@ func (r *RPC) Ping(arg *proto.NoArg, reply *proto.NoReply) error {
 func (r *RPC) Connect(arg *proto.ConnArg, reply *proto.ConnReply) (err error) {
 	if arg == nil {
 		err = ErrConnectArgs
-		log.Error("Connect() error(%v)", err)
+		log.Error("connect arg is nil")
 		return
 	}
 
 	var loginReq LoginReq
 	if err = json.Unmarshal(arg.Data, &loginReq); err != nil {
+		log.Error("connect parse LoginReq failed[%s],err:%v", string(arg.Data), err)
 		return
 	}
 
-	if key, resp, err = doLogin(loginReq); err != nil {
+	log.Info("receive loginReq:%v", loginReq)
+
+	var key string
+	if key, _, err = r.doLogin(arg.Server, &loginReq); err != nil {
+		log.Error("connect doLogin failed[%s], err:%v", string(arg.Data), err)
 		return
 	}
+
+	log.Info("connect doLogin ok[%s]", string(arg.Data))
 
 	reply.Ok = true
 	reply.Key = key
@@ -80,21 +88,14 @@ func (r *RPC) Connect(arg *proto.ConnArg, reply *proto.ConnReply) (err error) {
 func (r *RPC) Disconnect(arg *proto.DisconnArg, reply *proto.DisconnReply) (err error) {
 	if arg == nil {
 		err = ErrDisconnectArgs
-		log.Error("Disconnect() error(%v)", err)
+		log.Error("Disconnect arg is nil")
 		return
 	}
 
-	var req LogoutReq
-	if err = json.Unmarshal(arg.Data, &req); err != nil {
+	if reply.Has, _, err = r.doLogout(arg.Key, nil); err != nil {
+		log.Warn("Disconnect error.key:%s,err:%v", arg.Key, err)
 		return
 	}
-
-	if resp, err = doLogout(req); err != nil {
-		return
-	}
-
-	reply.Ok = true
-
 	return
 }
 
@@ -116,7 +117,7 @@ func (r *RPC) Operate(arg *proto.OperArg, reply *proto.OperReply) (err error) {
 		if err = json.Unmarshal(arg.Data, &hbReq); err != nil {
 			return
 		}
-		resp, err = doHeartbeat(arg.Key, hbReq)
+		resp, err = r.doHeartbeat(arg.Key, &hbReq)
 		reply.Op = define.OP_HEARTBEAT_REPLY
 
 	case define.OP_SEND_MSG:
@@ -124,12 +125,12 @@ func (r *RPC) Operate(arg *proto.OperArg, reply *proto.OperReply) (err error) {
 		if err = json.Unmarshal(arg.Data, &msgReq); err != nil {
 			return
 		}
-		resp, err = doSendMsg(arg.Key, msgReq)
+		resp, err = r.doSendMsg(arg.Key, &msgReq)
 		reply.Op = define.OP_SEND_MSG_REPLY
 
-	case define.OP_OP_MSG_SYNC:
+	case define.OP_MSG_SYNC:
 		// TODO
-		reply.Op = define.OP_OP_MSG_SYNC_REPLY
+		reply.Op = define.OP_MSG_SYNC_REPLY
 
 	default:
 		log.Error("Operate operation not found. op=%d", arg.Op)
@@ -154,37 +155,127 @@ func (r *RPC) Operate(arg *proto.OperArg, reply *proto.OperReply) (err error) {
 
 ///////////////  logic /////////////
 
-func doLogin(loginReq LoginReq) (key string, req LoginResp, err error) {
+func (r *RPC) doLogin(serverId int32, req *LoginReq) (key string, resp *LoginResp, err error) {
 	if req == nil {
+		log.Error("doLogin req is nil")
+		err = ErrInvalidArgument
+		return
+	}
+
+	appId := req.UserInfo.AppId
+	userId := req.UserInfo.UserId
+
+	if len(appId) == 0 || len(userId) == 0 {
+		log.Error("doLogin missing appId(%v) or userId(%v)", appId, userId)
 		err = ErrInvalidArgument
 		return
 	}
 
 	var (
-		appId  string
-		userId string
+		seq      int32
+		session  *Session
+		routeKey string
 	)
-	if loginReq.UserInfo != nil {
-		appId = loginReq.UserInfo.AppId
-		userId = loginReq.UserInfo.UserId
-	}
 
-	if ok := r.auther.Auth(loginReq.UserInfo.AppId, loginReq.UserId, loginReq.Token); ok {
+	seq = util.GetTimestampSecond()
+
+	// 连接标识
+	key = encodeUserKey(appId, userId, seq)
+
+	// 用户标识 (暂不支持多端登录)
+	routeKey = encodeRouteKey(appId, userId)
+
+	if ok := r.auther.Auth(appId, userId, req.Token); ok {
+		if session, err = Router.Get(&GetRouteArg{Key: routeKey}); err == nil {
+			if session.Seq >= seq {
+				// 无效登录
+				log.Warn("invalid login.session.Seq %d > seq %d.key:%s", session.Seq, seq, routeKey)
+				err = ErrInvalidReq
+				return
+			}
+
+			// 踢掉
+			oldKey := encodeUserKey(appId, userId, session.Seq)
+			sPushComet(session.ServerId, oldKey, define.OP_KICKOUT, []byte("{}"))
+			log.Warn("send kickout user %s to server %d", oldKey, session.ServerId)
+		}
+
 		// 设置router
-		if err = connect(arg.Server); err != nil {
+		if err = Router.Set(&SetRouteArg{Key: routeKey, Session: Session{ServerId: serverId, Seq: seq}}); err != nil {
+			log.Error("login set route failed user %s to server %d", routeKey, serverId)
 			return
 		}
+		log.Info("user %s login route at server %d", routeKey, serverId)
 	} else {
+		log.Error("doLogin auth failed,token=%s, appId:%s, userId:%s", req.Token, appId, userId)
 		err = ErrAuthFailed
 	}
 	return
 }
 
-func doLogout(key string, logoutReq LogoutReq) (resp LogoutResp, err error) {
+func (r *RPC) doLogout(key string, req *LogoutReq) (has bool, resp LogoutResp, err error) {
+	if len(key) == 0 {
+		log.Error("doLogout key is empty")
+		err = ErrInvalidArgument
+		return
+	}
+
+	var (
+		appId    string
+		userId   string
+		seq      int32
+		routeKey string
+		session  *Session
+	)
+
+	if appId, userId, seq, err = decodeUserKey(key); err != nil {
+		log.Error("doLogout decode key failed:%s.err:%v", key, err)
+		err = ErrInvalidArgument
+		return
+	}
+
+	routeKey = encodeRouteKey(appId, userId)
+
+	if session, err = Router.Get(&GetRouteArg{Key: routeKey}); err == nil {
+		if session.Seq != seq {
+			log.Warn("invalid logout.session.Seq %d > seq %d.key:%s", session.Seq, seq, routeKey)
+			err = ErrInvalidReq
+			return
+		}
+	} else {
+		log.Error("doLogout delete session not found:%s.err:%v", key, err)
+		has = false
+		err = nil
+		return
+	}
+
+	if has, err = Router.Del(&DelRouteArg{Key: routeKey}); err != nil {
+		log.Error("doLogout delete session failed:%s.err:%v", key, err)
+	}
+
+	log.Info("doLogout ok.user:%s", key)
+
+	return
 }
 
-func doHeartbeat(key string, hbReq HeartbeatReq) (resp HeartbeatResp, err error) {
+func (r *RPC) doHeartbeat(key string, hbReq *HeartbeatReq) (resp HeartbeatResp, err error) {
+	// if req == nil {
+	// 	err = ErrInvalidArgument
+	// 	return
+	// }
+
+	// if len(key) == 0 {
+	// 	err = ErrInvalidArgument
+	// 	return
+	// }
+
+	// if appId, userId, err = decodeUserKey(key); err != nil {
+	// 	err = ErrInvalidArgument
+	// 	return
+	// }
+	return
 }
 
-func doSendMsg(key string, msgReq SendMsgReq) (resp SendMsgResp, err error) {
+func (r *RPC) doSendMsg(key string, msgReq *SendMsgReq) (resp SendMsgResp, err error) {
+	return
 }

@@ -161,11 +161,15 @@ func (server *Server) serveTCP(conn *net.TCPConn, rp, wp *bytes.Pool, tr *itime.
 			if Debug {
 				log.Debug("key: %s receive heartbeat", key)
 			}
+		} else if p.Operation == define.OP_LOGOUT {
+			// only break loop
+			break
 		} else {
 			// 交由Logic处理 (实际上, 可以通过向Logic传送hearbeat重建意外crash的router)
 			if err = server.operator.Operate(p); err != nil {
 				break
 			}
+			tr.Set(trd, hb) // 当成hb
 		}
 		ch.CliProto.SetAdv() // 使用下一个空间, 这个交由dispatcher发送
 		ch.Signal()
@@ -207,6 +211,9 @@ func (server *Server) dispatchTCP(key string, conn *net.TCPConn, wr *bufio.Write
 		if Debug {
 			log.Debug("key:%s dispatch msg:%v", key, *p)
 		}
+
+		closeConn := false
+
 		switch p {
 		case proto.ProtoFinish:
 			if Debug {
@@ -228,6 +235,11 @@ func (server *Server) dispatchTCP(key string, conn *net.TCPConn, wr *bufio.Write
 				ch.CliProto.GetAdv()
 			}
 		default:
+			// 踢人
+			if p.Operation == define.OP_KICKOUT {
+				log.Warn("kickout user link %s", key)
+				closeConn = true
+			}
 			// server send
 			if err = p.WriteTCP(wr); err != nil {
 				goto failed
@@ -235,6 +247,10 @@ func (server *Server) dispatchTCP(key string, conn *net.TCPConn, wr *bufio.Write
 		}
 		// only hungry flush response
 		if err = wr.Flush(); err != nil {
+			break
+		}
+
+		if closeConn {
 			break
 		}
 	}

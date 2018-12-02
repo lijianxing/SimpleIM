@@ -7,6 +7,8 @@ import (
 var (
 	ErrUnknownOper     = errors.New("unknown operate")
 	ErrAuthFailed      = errors.New("auth failed")
+	ErrInvalidReq      = errors.New("invalid req")
+	ErrDuplicatedReq   = errors.New("duplicate req")
 	ErrInternalError   = errors.New("internal error")
 	ErrInvalidArgument = errors.New("invalid argument")
 
@@ -15,5 +17,5 @@ var (
 	ErrNetworkAddr    = errors.New("network addrs error, must network@address")
 	ErrConnectArgs    = errors.New("connect rpc args error")
 	ErrDisconnectArgs = errors.New("disconnect rpc args error")
-	ErrOperatetArgs   = errors.New("operate rpc args error")
+	ErrOperateArgs    = errors.New("operate rpc args error")
 )

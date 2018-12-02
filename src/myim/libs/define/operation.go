@@ -29,11 +29,14 @@ const (
 	OP_TEST       = int32(12)
 	OP_TEST_REPLY = int32(13)
 
-	// raw message
-	OP_RAW = int32(21)
+	// 踢掉链接 (重复登录)
+	OP_KICKOUT = int32(14)
 
-	// 内部使用
+	////////////////  内部使用 ////////////////////
 	// proto
-	OP_PROTO_READY  = int32(22)
-	OP_PROTO_FINISH = int32(23)
+	OP_PROTO_READY  = int32(50)
+	OP_PROTO_FINISH = int32(51)
+
+	// 空操作(不用返回)
+	OP_NONE = int32(99)
 )

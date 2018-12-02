@@ -198,6 +198,7 @@ func (server *Server) serveWebsocket(conn net.Conn, rp, wp *bytes.Pool, tr *itim
 			if err = server.operator.Operate(p); err != nil {
 				break
 			}
+			tr.Set(trd, hb) // 当成hb
 		}
 		ch.CliProto.SetAdv()
 		ch.Signal()

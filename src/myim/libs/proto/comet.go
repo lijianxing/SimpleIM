@@ -45,7 +45,3 @@ type BoardcastRoomArg struct {
 	RoomId int32
 	P      Proto
 }
-
-type RoomsReply struct {
-	RoomIds map[int32]struct{}
-}

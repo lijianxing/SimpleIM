@@ -2,9 +2,9 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
-	log "github.com/thinkboy/log4go"
 	"net/http"
+
+	log "github.com/thinkboy/log4go"
 )
 
 type Monitor struct {
@@ -29,12 +29,6 @@ func InitMonitor(binds []string) {
 
 // monitor ping
 func (m *Monitor) Ping(w http.ResponseWriter, r *http.Request) {
-	for _, c := range routerServiceMap {
-		if err := c.Available(); err != nil {
-			http.Error(w, fmt.Sprintf("ping rpc error(%v)", err), http.StatusInternalServerError)
-			return
-		}
-	}
 	w.Write([]byte("ok"))
 }
 

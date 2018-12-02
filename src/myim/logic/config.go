@@ -19,6 +19,7 @@ package main
 import (
 	"flag"
 	"runtime"
+	"strconv"
 	"time"
 
 	"github.com/Terry-Mao/goconf"
@@ -46,11 +47,19 @@ type Config struct {
 	HTTPReadTimeout  time.Duration `goconf:"base:http.read.timeout:time"`
 	HTTPWriteTimeout time.Duration `goconf:"base:http.write.timeout:time"`
 
-	// router RPC
-	RouterRPCAddrs map[string]string `-`
+	// router
+	SessionExpireSec int `goconf:"router:session_expire_ts"`
+
+	// redis
+	RedisAddr            string        `goconf:"redis:addr"`
+	RedisPoolMaxActive   int           `goconf:"redis:pool.max_active"`
+	RedisPoolMaxIdle     int           `goconf:"redis:pool.max_idle"`
+	RedisPoolIdleTimeout time.Duration `goconf:"redis:pool.idle_timeout:time"`
 
 	// comet RPC
-	CometRPCAddrs map[string]string `-`
+	CometRPCAddrs map[int32]string `-`
+	RoutineSize   uint64           `goconf:"comet:routine.size"`
+	RoutineChan   int              `goconf:"comet:routine.chan"`
 
 	// monitor
 	MonitorOpen  bool     `goconf:"monitor:open"`
@@ -60,12 +69,22 @@ type Config struct {
 func NewConfig() *Config {
 	return &Config{
 		// base section
-		PidFile:        "/tmp/goim-logic.pid",
-		Dir:            "./",
-		Log:            "./logic-log.xml",
-		MaxProc:        runtime.NumCPU(),
-		HTTPAddrs:      []string{"7172"},
-		RouterRPCAddrs: make(map[string]string),
+		PidFile:       "/tmp/goim-logic.pid",
+		Dir:           "./",
+		Log:           "./logic-log.xml",
+		MaxProc:       runtime.NumCPU(),
+		HTTPAddrs:     []string{"7172"},
+		CometRPCAddrs: make(map[int32]string),
+
+		// comet
+		RoutineSize: 16,
+		RoutineChan: 64,
+
+		// redis
+		RedisAddr:            "localhost:6379",
+		RedisPoolMaxActive:   0,
+		RedisPoolMaxIdle:     0,
+		RedisPoolIdleTimeout: 60 * time.Second,
 	}
 }
 
@@ -80,22 +99,18 @@ func InitConfig() (err error) {
 		return err
 	}
 
-	// router
-	for _, serverID := range gconf.Get("router").Keys() {
-		addr, err := gconf.Get("router").String(serverID)
-		if err != nil {
-			return err
-		}
-		Conf.RouterRPCAddrs[serverID] = addr
-	}
-
 	// comet
-	for _, serverID := range gconf.Get("comet").Keys() {
-		addr, err := gconf.Get("comet").String(serverID)
+	var serverIDi int64
+	for _, serverID := range gconf.Get("comets").Keys() {
+		addr, err := gconf.Get("comets").String(serverID)
 		if err != nil {
 			return err
 		}
-		Conf.CometRPCAddrs[serverID] = addr
+		serverIDi, err = strconv.ParseInt(serverID, 10, 32)
+		if err != nil {
+			return err
+		}
+		Conf.CometRPCAddrs[int32(serverIDi)] = addr
 	}
 
 	return nil
