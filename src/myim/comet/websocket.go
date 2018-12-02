@@ -113,19 +113,18 @@ func serveWebsocket(server *Server, conn net.Conn, r int) {
 // TODO linger close?
 func (server *Server) serveWebsocket(conn net.Conn, rp, wp *bytes.Pool, tr *itime.Timer) {
 	var (
-		err    error
-		key    string
-		roomId int32
-		hb     time.Duration // heartbeat
-		p      *proto.Proto
-		b      *Bucket
-		trd    *itime.TimerData
-		rb     = rp.Get()
-		ch     = NewChannel(server.Options.CliProto, server.Options.SvrProto)
-		rr     = &ch.Reader
-		wr     = &ch.Writer
-		ws     *websocket.Conn // websocket
-		req    *websocket.Request
+		err error
+		key string
+		hb  time.Duration // heartbeat
+		p   *proto.Proto
+		b   *Bucket
+		trd *itime.TimerData
+		rb  = rp.Get()
+		ch  = NewChannel(server.Options.CliProto, server.Options.SvrProto)
+		rr  = &ch.Reader
+		wr  = &ch.Writer
+		ws  *websocket.Conn // websocket
+		req *websocket.Request
 	)
 	// reader
 	ch.Reader.ResetBuffer(conn, rb.Bytes())
@@ -188,17 +187,16 @@ func (server *Server) serveWebsocket(conn net.Conn, rp, wp *bytes.Pool, tr *itim
 		if err = p.ReadWebsocket(ws); err != nil {
 			break
 		}
-		if p.Operation == define.OP_HEARTBEAT {
-			tr.Set(trd, hb)
-			p.Operation = define.OP_HEARTBEAT_REPLY
-			if Debug {
-				log.Debug("key: %s receive heartbeat", key)
-			}
+
+		if p.Operation == define.OP_LOGOUT {
+			// only break loop
+			break
 		} else {
-			if err = server.operator.Operate(p); err != nil {
-				break
-			}
 			tr.Set(trd, hb) // 当成hb
+			if err = server.operator.Operate(key, p); err != nil {
+				log.Error("operate msg failed.key:%s, msg:%s", key, p)
+				continue // 忽略错误
+			}
 		}
 		ch.CliProto.SetAdv()
 		ch.Signal()
@@ -211,7 +209,7 @@ func (server *Server) serveWebsocket(conn net.Conn, rp, wp *bytes.Pool, tr *itim
 	ws.Close()
 	ch.Close()
 	rp.Put(rb)
-	if err = server.operator.Disconnect(key, roomId); err != nil {
+	if err = server.operator.Disconnect(key); err != nil {
 		log.Error("key: %s operator do disconnect error(%v)", key, err)
 	}
 	if Debug {
@@ -238,6 +236,8 @@ func (server *Server) dispatchWebsocket(key string, ws *websocket.Conn, wp *byte
 		if Debug {
 			log.Debug("key:%s dispatch msg:%s", key, p.Body)
 		}
+
+		closeConn := false
 		switch p {
 		case proto.ProtoFinish:
 			if Debug {
@@ -252,13 +252,20 @@ func (server *Server) dispatchWebsocket(key string, ws *websocket.Conn, wp *byte
 					err = nil // must be empty error
 					break
 				}
-				if err = p.WriteWebsocket(ws); err != nil {
-					goto failed
+				if p.Operation != define.OP_NONE { // 不用下发
+					if err = p.WriteWebsocket(ws); err != nil {
+						goto failed
+					}
 				}
 				p.Body = nil // avoid memory leak
 				ch.CliProto.GetAdv()
 			}
 		default:
+			// 踢人
+			if p.Operation == define.OP_KICKOUT {
+				log.Warn("kickout user link %s", key)
+				closeConn = true
+			}
 			// server send
 			if err = p.WriteWebsocket(ws); err != nil {
 				goto failed
@@ -266,6 +273,10 @@ func (server *Server) dispatchWebsocket(key string, ws *websocket.Conn, wp *byte
 		}
 		// only hungry flush response
 		if err = ws.Flush(); err != nil {
+			break
+		}
+
+		if closeConn {
 			break
 		}
 	}

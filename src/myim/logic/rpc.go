@@ -92,7 +92,7 @@ func (r *RPC) Disconnect(arg *proto.DisconnArg, reply *proto.DisconnReply) (err 
 		return
 	}
 
-	if reply.Has, _, err = r.doLogout(arg.Key, nil); err != nil {
+	if reply.Has, _, err = r.doLogout(arg.Server, arg.Key, nil); err != nil {
 		log.Warn("Disconnect error.key:%s,err:%v", arg.Key, err)
 		return
 	}
@@ -113,24 +113,21 @@ func (r *RPC) Operate(arg *proto.OperArg, reply *proto.OperReply) (err error) {
 	)
 	switch arg.Op {
 	case define.OP_HEARTBEAT:
-		var hbReq HeartbeatReq
-		if err = json.Unmarshal(arg.Data, &hbReq); err != nil {
-			return
-		}
-		resp, err = r.doHeartbeat(arg.Key, &hbReq)
-		reply.Op = define.OP_HEARTBEAT_REPLY
+		// 暂时不需要请求/响应数据
+		op = define.OP_HEARTBEAT_REPLY
+		_, err = r.doHeartbeat(arg.Server, arg.Key, nil)
 
 	case define.OP_SEND_MSG:
 		var msgReq SendMsgReq
 		if err = json.Unmarshal(arg.Data, &msgReq); err != nil {
 			return
 		}
-		resp, err = r.doSendMsg(arg.Key, &msgReq)
-		reply.Op = define.OP_SEND_MSG_REPLY
+		resp, err = r.doSendMsg(arg.Server, arg.Key, &msgReq)
+		op = define.OP_SEND_MSG_REPLY
 
 	case define.OP_MSG_SYNC:
 		// TODO
-		reply.Op = define.OP_MSG_SYNC_REPLY
+		op = define.OP_MSG_SYNC_REPLY
 
 	default:
 		log.Error("Operate operation not found. op=%d", arg.Op)
@@ -213,7 +210,7 @@ func (r *RPC) doLogin(serverId int32, req *LoginReq) (key string, resp *LoginRes
 	return
 }
 
-func (r *RPC) doLogout(key string, req *LogoutReq) (has bool, resp LogoutResp, err error) {
+func (r *RPC) doLogout(serverId int32, key string, req *LogoutReq) (has bool, resp *LogoutResp, err error) {
 	if len(key) == 0 {
 		log.Error("doLogout key is empty")
 		err = ErrInvalidArgument
@@ -258,24 +255,67 @@ func (r *RPC) doLogout(key string, req *LogoutReq) (has bool, resp LogoutResp, e
 	return
 }
 
-func (r *RPC) doHeartbeat(key string, hbReq *HeartbeatReq) (resp HeartbeatResp, err error) {
-	// if req == nil {
-	// 	err = ErrInvalidArgument
-	// 	return
-	// }
+func (r *RPC) doHeartbeat(serverId int32, key string, req *HeartbeatReq) (resp *HeartbeatResp, err error) {
+	if len(key) == 0 {
+		err = ErrInvalidArgument
+		return
+	}
 
-	// if len(key) == 0 {
-	// 	err = ErrInvalidArgument
-	// 	return
-	// }
+	log.Debug("receive heartbeat msg.serverId:%d, key:%s", serverId, key)
 
-	// if appId, userId, err = decodeUserKey(key); err != nil {
-	// 	err = ErrInvalidArgument
-	// 	return
-	// }
+	// 路由维护
+	if err = refreshRoute(serverId, key); err != nil {
+		log.Error("hearbeat refresh route failed.key:%s, err:%v", key, err)
+	}
+
+	// always succ
+	err = nil
+	resp = nil
 	return
 }
 
-func (r *RPC) doSendMsg(key string, msgReq *SendMsgReq) (resp SendMsgResp, err error) {
+func (r *RPC) doSendMsg(serverId int32, key string, msgReq *SendMsgReq) (resp SendMsgResp, err error) {
+	if len(key) == 0 {
+		err = ErrInvalidArgument
+		return
+	}
+
+	// 路由维护
+	if err = refreshRoute(serverId, key); err != nil {
+		log.Error("sendmsg refresh route failed.key:%s, err:%v", key, err)
+	}
+
+	return
+}
+
+func refreshRoute(serverId int32, key string) (err error) {
+	var (
+		appId   string
+		userId  string
+		seq     int32
+		session *Session
+	)
+
+	if appId, userId, seq, err = decodeUserKey(key); err != nil {
+		log.Error("decode user key failed, key:%s, err:%v", key, err)
+		err = ErrInvalidArgument
+		return
+	}
+	routeKey := encodeRouteKey(appId, userId)
+
+	if session, err = Router.Get(&GetRouteArg{Key: routeKey}); err == nil {
+		if session.Seq > seq {
+			log.Warn("invalid refresh route.session.Seq %d > seq %d.key:%s", session.Seq, seq, routeKey)
+			err = ErrInvalidReq
+			return
+		}
+	}
+
+	// 路由更新
+	if err = Router.Set(&SetRouteArg{Key: routeKey, Session: Session{ServerId: serverId, Seq: seq}}); err != nil {
+		log.Error("login set route failed user %s to server %d", routeKey, serverId)
+		return
+	}
+	log.Debug("login refresh route ok.key:%s, server:%d", routeKey, serverId)
 	return
 }

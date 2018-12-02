@@ -10,32 +10,32 @@ import (
 
 type Operator interface {
 	// Operate process the common operation such as send message etc.
-	Operate(*proto.Proto) error
+	Operate(string, *proto.Proto) error
 
 	// Connect used for auth user and return a subkey(连接标识), hearbeat.
 	Connect(*proto.Proto) (string, time.Duration, error)
 
 	// Disconnect used for revoke the subkey.
-	Disconnect(string, int32) error
+	Disconnect(string) error
 }
 
 type DefaultOperator struct {
 }
 
-func (operator *DefaultOperator) Operate(p *proto.Proto) error {
+func (operator *DefaultOperator) Operate(key string, p *proto.Proto) (err error) {
 	var (
 		body []byte
 	)
 	// p是请求, 也是响应
-	if p.Operation == define.OP_SEND_MSG {
-		p.Operation = define.OP_SEND_MSG_REPLY
-		log.Info("send msg proto: %v", p)
-	} else if p.Operation == define.OP_TEST {
+	if p.Operation == define.OP_TEST {
 		log.Debug("test operation: %s", body)
 		p.Operation = define.OP_TEST_REPLY
 		p.Body = []byte("{\"test\":\"come on\"}")
 	} else {
-		return ErrOperation
+		// 交给logic处理
+		if err = operate(key, p); err != nil {
+			return
+		}
 	}
 	return nil
 }
@@ -45,9 +45,9 @@ func (operator *DefaultOperator) Connect(p *proto.Proto) (key string, heartbeat 
 	return
 }
 
-func (operator *DefaultOperator) Disconnect(key string, rid int32) (err error) {
+func (operator *DefaultOperator) Disconnect(key string) (err error) {
 	var has bool
-	if has, err = disconnect(key, rid); err != nil {
+	if has, err = disconnect(key); err != nil {
 		return
 	}
 	if !has {

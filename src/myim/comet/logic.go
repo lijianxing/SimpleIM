@@ -17,6 +17,7 @@ var (
 	logicServicePing       = "RPC.Ping"
 	logicServiceConnect    = "RPC.Connect"
 	logicServiceDisconnect = "RPC.Disconnect"
+	logicServiceOperate    = "RPC.Operate"
 )
 
 func InitLogicRpc(addrs []string) (err error) {
@@ -64,7 +65,7 @@ func connect(p *proto.Proto) (key string, heartbeat time.Duration, err error) {
 	return
 }
 
-func disconnect(key string, roomId int32) (has bool, err error) {
+func disconnect(key string) (has bool, err error) {
 	var (
 		arg   = proto.DisconnArg{Server: Conf.ServerId, Key: key}
 		reply = proto.DisconnReply{}
@@ -74,5 +75,21 @@ func disconnect(key string, roomId int32) (has bool, err error) {
 		return
 	}
 	has = reply.Has
+	return
+}
+
+func operate(key string, p *proto.Proto) (err error) {
+	var (
+		arg   = proto.OperArg{Server: Conf.ServerId, Key: key, SeqId: p.SeqId, Op: p.Operation, Data: p.Body}
+		reply = proto.OperReply{}
+	)
+	if err = logicRpcClient.Call(logicServiceOperate, &arg, &reply); err != nil {
+		log.Error("c.Call(\"%s\", \"%v\", &ret) error(%v)", logicServiceOperate, arg, err)
+		return
+	}
+
+	p.Operation = reply.Op
+	p.Body = reply.Data
+
 	return
 }

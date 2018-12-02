@@ -101,7 +101,6 @@ func (server *Server) serveTCP(conn *net.TCPConn, rp, wp *bytes.Pool, tr *itime.
 	var (
 		err error
 		key string
-		rid int32
 		hb  time.Duration // heartbeat
 		p   *proto.Proto
 		b   *Bucket
@@ -153,23 +152,18 @@ func (server *Server) serveTCP(conn *net.TCPConn, rp, wp *bytes.Pool, tr *itime.
 		if err = p.ReadTCP(rr); err != nil {
 			break
 		}
-		if p.Operation == define.OP_HEARTBEAT {
-			// 重置心跳超时
-			tr.Set(trd, hb)
-			p.Body = nil
-			p.Operation = define.OP_HEARTBEAT_REPLY
-			if Debug {
-				log.Debug("key: %s receive heartbeat", key)
-			}
-		} else if p.Operation == define.OP_LOGOUT {
+
+		if p.Operation == define.OP_LOGOUT {
 			// only break loop
 			break
 		} else {
+			tr.Set(trd, hb) // 收到包重置超时器
+
 			// 交由Logic处理 (实际上, 可以通过向Logic传送hearbeat重建意外crash的router)
-			if err = server.operator.Operate(p); err != nil {
-				break
+			if err = server.operator.Operate(key, p); err != nil {
+				log.Error("operate msg failed.key:%s, msg:%s", key, p)
+				continue // 忽略错误
 			}
-			tr.Set(trd, hb) // 当成hb
 		}
 		ch.CliProto.SetAdv() // 使用下一个空间, 这个交由dispatcher发送
 		ch.Signal()
@@ -183,7 +177,7 @@ func (server *Server) serveTCP(conn *net.TCPConn, rp, wp *bytes.Pool, tr *itime.
 	rp.Put(rb)
 	conn.Close()
 	ch.Close()
-	if err = server.operator.Disconnect(key, rid); err != nil {
+	if err = server.operator.Disconnect(key); err != nil {
 		log.Error("key: %s operator do disconnect error(%v)", key, err)
 	}
 	if Debug {
@@ -228,8 +222,10 @@ func (server *Server) dispatchTCP(key string, conn *net.TCPConn, wr *bufio.Write
 					err = nil // must be empty error
 					break
 				}
-				if err = p.WriteTCP(wr); err != nil {
-					goto failed
+				if p.Operation != define.OP_NONE { // 不用下发
+					if err = p.WriteTCP(wr); err != nil {
+						goto failed
+					}
 				}
 				p.Body = nil // avoid memory leak
 				ch.CliProto.GetAdv()

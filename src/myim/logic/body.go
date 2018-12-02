@@ -14,16 +14,12 @@ type LoginResp struct {
 }
 
 type HeartbeatReq struct {
-	UserInfo UserInfo `json:"user_info"`
 }
 
 type HeartbeatResp struct {
 }
 
 type SendMsgReq struct {
-	UserInfo   UserInfo `json:"user_info"`
-	FromUserId string   `json:"from_userid"`
-
 	// 1:user 2:group
 	TargetType int    `json:"target_type"`
 	TargetId   string `json:"target_id"`
@@ -42,8 +38,8 @@ type SendMsgResp struct {
 }
 
 type LogoutReq struct {
-	UserInfo UserInfo `json:"user_info"`
 }
 
+// useless
 type LogoutResp struct {
 }
