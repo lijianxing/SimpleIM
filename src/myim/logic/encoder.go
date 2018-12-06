@@ -41,3 +41,20 @@ func decodeUserKey(key string) (appId string, userId string, seq int32, err erro
 func encodeRouteKey(appId string, userId string) string {
 	return fmt.Sprintf("%s_%s", appId, userId)
 }
+
+func encodeSinleSessionCode(userId1, userId2 string) string {
+	var first string
+	var second string
+	if userId1 < userId2 {
+		first = userId1
+		second = userId2
+	} else {
+		first = userId2
+		second = userId1
+	}
+	return fmt.Sprintf("%s_%s", first, second)
+}
+
+func encodeGroupSessionCode(groupCode string) string {
+	return groupCode
+}

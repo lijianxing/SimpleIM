@@ -252,7 +252,7 @@ func (server *Server) dispatchWebsocket(key string, ws *websocket.Conn, wp *byte
 					err = nil // must be empty error
 					break
 				}
-				if p.Operation != define.OP_NONE { // 不用下发
+				if p.Operation != define.OP_NONE {
 					if err = p.WriteWebsocket(ws); err != nil {
 						goto failed
 					}

@@ -61,7 +61,7 @@ func connect(p *proto.Proto) (key string, heartbeat time.Duration, err error) {
 	}
 
 	key = reply.Key
-	heartbeat = 60 * time.Second
+	heartbeat = time.Duration(reply.Heartbeat) * time.Second
 	return
 }
 

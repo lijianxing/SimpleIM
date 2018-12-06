@@ -3,14 +3,10 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"time"
+	"myim/libs/define"
 
 	"github.com/garyburd/redigo/redis"
 	log "github.com/thinkboy/log4go"
-)
-
-const (
-	SUBKEY_PREFIX = "myim_route_"
 )
 
 type Session struct {
@@ -32,55 +28,13 @@ type DelRouteArg struct {
 	Key string
 }
 
-type IRouter interface {
-	Get(arg *GetRouteArg) (session *Session, err error)
-	MGet(args []*GetRouteArg) (sessions []*Session, err error)
-	Set(arg *SetRouteArg) (err error)
-	Del(arg *DelRouteArg) (has bool, err error)
-}
-
-type RedisRouter struct {
-	pool *redis.Pool
-	conf *RedisConfig
-}
-
-type RedisConfig struct {
-	Addr        string
-	MaxIdle     int
-	MaxActive   int
-	IdleTimeout time.Duration
-}
-
-var (
-	DefaultRouter RedisRouter
-	Router        IRouter = &DefaultRouter
-)
-
-func InitRedisRouter(conf *RedisConfig) (err error) {
-	return DefaultRouter.Init(conf)
-}
-
-func (rr *RedisRouter) Init(conf *RedisConfig) (err error) {
-	rr.conf = conf
-	rr.pool = &redis.Pool{
-		MaxIdle:     conf.MaxIdle,
-		MaxActive:   conf.MaxActive,
-		IdleTimeout: conf.IdleTimeout,
-		Wait:        true,
-		Dial: func() (redis.Conn, error) {
-			return redis.Dial("tcp", conf.Addr)
-		},
-	}
-	return
-}
-
-func (rr *RedisRouter) Get(arg *GetRouteArg) (session *Session, err error) {
+func getRoute(arg *GetRouteArg) (session *Session, err error) {
 	if arg == nil {
 		err = ErrInvalidArgument
 		return
 	}
 
-	conn := rr.pool.Get()
+	conn := RedisManager.GetConn()
 	if conn == nil {
 		log.Error("get redis conn failed")
 		err = ErrInternalError
@@ -98,12 +52,12 @@ func (rr *RedisRouter) Get(arg *GetRouteArg) (session *Session, err error) {
 	return
 }
 
-func (rr *RedisRouter) MGet(args []*GetRouteArg) (res []*Session, err error) {
+func mGetRoute(args []*GetRouteArg) (res []*Session, err error) {
 	if len(args) == 0 {
 		return
 	}
 
-	conn := rr.pool.Get()
+	conn := RedisManager.GetConn()
 	if conn == nil {
 		err = ErrInternalError
 		return
@@ -132,13 +86,13 @@ func (rr *RedisRouter) MGet(args []*GetRouteArg) (res []*Session, err error) {
 	return
 }
 
-func (rr *RedisRouter) Set(arg *SetRouteArg) (err error) {
+func setRoute(arg *SetRouteArg) (err error) {
 	if arg == nil {
 		err = ErrInvalidArgument
 		return
 	}
 
-	conn := rr.pool.Get()
+	conn := RedisManager.GetConn()
 	if conn == nil {
 		log.Error("get redis conn failed")
 		err = ErrInternalError
@@ -167,14 +121,14 @@ func (rr *RedisRouter) Set(arg *SetRouteArg) (err error) {
 	return
 }
 
-func (rr *RedisRouter) Del(arg *DelRouteArg) (has bool, err error) {
+func delRoute(arg *DelRouteArg) (has bool, err error) {
 	if arg == nil {
 		log.Error("del router arg is nil")
 		err = ErrInvalidArgument
 		return
 	}
 
-	conn := rr.pool.Get()
+	conn := RedisManager.GetConn()
 	if conn == nil {
 		log.Error("get redis conn failed")
 		err = ErrInternalError
@@ -219,5 +173,5 @@ func unserializeSession(data string) (res *Session, err error) {
 }
 
 func makeKey(key string) string {
-	return fmt.Sprintf("%s%s", SUBKEY_PREFIX, key)
+	return fmt.Sprintf("%s%s", define.USER_ROUTE_PREFIX, key)
 }

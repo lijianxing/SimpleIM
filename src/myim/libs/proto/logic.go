@@ -6,8 +6,9 @@ type ConnArg struct {
 }
 
 type ConnReply struct {
-	Ok  bool   // 是否允许连接
-	Key string // 连接唯一标识
+	Ok        bool   // 是否允许连接
+	Key       string // 连接唯一标识
+	Heartbeat int    // 心跳超时(秒)
 }
 
 type OperArg struct {

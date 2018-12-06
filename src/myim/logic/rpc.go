@@ -64,22 +64,23 @@ func (r *RPC) Connect(arg *proto.ConnArg, reply *proto.ConnReply) (err error) {
 
 	var loginReq LoginReq
 	if err = json.Unmarshal(arg.Data, &loginReq); err != nil {
-		log.Error("connect parse LoginReq failed[%s],err:%v", string(arg.Data), err)
+		log.Error("connect parse LoginReq failed.data=%s, serverId:%d, err:%v", string(arg.Data), arg.Server, err)
 		return
 	}
 
-	log.Info("receive loginReq:%v", loginReq)
+	log.Info("receive serverId:%d, LoginReq:%v", arg.Server, loginReq)
 
 	var key string
 	if key, _, err = r.doLogin(arg.Server, &loginReq); err != nil {
-		log.Error("connect doLogin failed[%s], err:%v", string(arg.Data), err)
+		log.Error("connect doLogin failed. server:%d, LoginReq:%v, err:%v", arg.Server, loginReq, err)
 		return
 	}
 
-	log.Info("connect doLogin ok[%s]", string(arg.Data))
-
 	reply.Ok = true
 	reply.Key = key
+	reply.Heartbeat = Conf.ClientHeartbeat
+
+	log.Info("connect doLogin ok.LoginReq:%v, reply:%v", loginReq, reply)
 
 	return
 }
@@ -93,7 +94,7 @@ func (r *RPC) Disconnect(arg *proto.DisconnArg, reply *proto.DisconnReply) (err 
 	}
 
 	if reply.Has, _, err = r.doLogout(arg.Server, arg.Key, nil); err != nil {
-		log.Warn("Disconnect error.key:%s,err:%v", arg.Key, err)
+		log.Warn("Disconnect error.server:%d, key:%s, err:%v", arg.Server, arg.Key, err)
 		return
 	}
 	return
@@ -126,8 +127,16 @@ func (r *RPC) Operate(arg *proto.OperArg, reply *proto.OperReply) (err error) {
 		op = define.OP_SEND_MSG_REPLY
 
 	case define.OP_MSG_SYNC:
-		// TODO
 		op = define.OP_MSG_SYNC_REPLY
+		var syncReq SyncMsgReq
+		if err = json.Unmarshal(arg.Data, &syncReq); err != nil {
+			return
+		}
+		resp, err = r.doSyncMsg(arg.Server, arg.Key, &syncReq)
+		op = define.OP_MSG_SYNC_REPLY
+
+	case define.OP_MSG_NOTIFY_ACK:
+		log.Debug("recive msg notify ack.req:%v", *arg)
 
 	default:
 		log.Error("Operate operation not found. op=%d", arg.Op)
@@ -142,6 +151,7 @@ func (r *RPC) Operate(arg *proto.OperArg, reply *proto.OperReply) (err error) {
 
 	if op != define.OP_NONE && resp != nil {
 		if reply.Data, err = json.Marshal(resp); err != nil {
+			log.Error("Operate marshal data failed.resp:%v, err:%v", resp, err)
 			return
 		}
 	}
@@ -154,7 +164,7 @@ func (r *RPC) Operate(arg *proto.OperArg, reply *proto.OperReply) (err error) {
 
 func (r *RPC) doLogin(serverId int32, req *LoginReq) (key string, resp *LoginResp, err error) {
 	if req == nil {
-		log.Error("doLogin req is nil")
+		log.Error("doLogin req is nil, serverId:%d", serverId)
 		err = ErrInvalidArgument
 		return
 	}
@@ -163,7 +173,7 @@ func (r *RPC) doLogin(serverId int32, req *LoginReq) (key string, resp *LoginRes
 	userId := req.UserInfo.UserId
 
 	if len(appId) == 0 || len(userId) == 0 {
-		log.Error("doLogin missing appId(%v) or userId(%v)", appId, userId)
+		log.Error("doLogin invalid params. serverId:%d, req:%v", serverId, *req)
 		err = ErrInvalidArgument
 		return
 	}
@@ -182,37 +192,39 @@ func (r *RPC) doLogin(serverId int32, req *LoginReq) (key string, resp *LoginRes
 	// 用户标识 (暂不支持多端登录)
 	routeKey = encodeRouteKey(appId, userId)
 
-	if ok := r.auther.Auth(appId, userId, req.Token); ok {
-		if session, err = Router.Get(&GetRouteArg{Key: routeKey}); err == nil {
-			if session.Seq >= seq {
-				// 无效登录
-				log.Warn("invalid login.session.Seq %d > seq %d.key:%s", session.Seq, seq, routeKey)
-				err = ErrInvalidReq
-				return
-			}
-
-			// 踢掉
-			oldKey := encodeUserKey(appId, userId, session.Seq)
-			sPushComet(session.ServerId, oldKey, define.OP_KICKOUT, []byte("{}"))
-			log.Warn("send kickout user %s to server %d", oldKey, session.ServerId)
-		}
-
-		// 设置router
-		if err = Router.Set(&SetRouteArg{Key: routeKey, Session: Session{ServerId: serverId, Seq: seq}}); err != nil {
-			log.Error("login set route failed user %s to server %d", routeKey, serverId)
-			return
-		}
-		log.Info("user %s login route at server %d", routeKey, serverId)
-	} else {
+	if ok := r.auther.Auth(appId, userId, req.Token); !ok {
 		log.Error("doLogin auth failed,token=%s, appId:%s, userId:%s", req.Token, appId, userId)
 		err = ErrAuthFailed
+		return
 	}
+
+	if session, err = getRoute(&GetRouteArg{Key: routeKey}); err == nil {
+		if session.Seq >= seq {
+			// 无效登录
+			log.Warn("invalid login.session.Seq %d > seq %d.key:%s", session.Seq, seq, routeKey)
+			err = ErrInvalidReq
+			return
+		}
+
+		// 踢掉
+		oldKey := encodeUserKey(appId, userId, session.Seq)
+		sPushComet(session.ServerId, oldKey, define.OP_KICKOUT, []byte("{}"))
+		log.Warn("send kickout user %s at server %d", oldKey, session.ServerId)
+	}
+
+	// 设置router
+	if err = setRoute(&SetRouteArg{Key: routeKey, Session: Session{ServerId: serverId, Seq: seq}}); err != nil {
+		log.Error("login set route failed user %s at server %d", routeKey, serverId)
+		return
+	}
+	log.Info("user %s login route at server %d", routeKey, serverId)
+
 	return
 }
 
 func (r *RPC) doLogout(serverId int32, key string, req *LogoutReq) (has bool, resp *LogoutResp, err error) {
 	if len(key) == 0 {
-		log.Error("doLogout key is empty")
+		log.Error("doLogout key is empty.serverId:%d", serverId)
 		err = ErrInvalidArgument
 		return
 	}
@@ -226,37 +238,38 @@ func (r *RPC) doLogout(serverId int32, key string, req *LogoutReq) (has bool, re
 	)
 
 	if appId, userId, seq, err = decodeUserKey(key); err != nil {
-		log.Error("doLogout decode key failed:%s.err:%v", key, err)
+		log.Error("doLogout decode key failed:%s. serverId:%d, err:%v", key, serverId, err)
 		err = ErrInvalidArgument
 		return
 	}
 
 	routeKey = encodeRouteKey(appId, userId)
 
-	if session, err = Router.Get(&GetRouteArg{Key: routeKey}); err == nil {
+	if session, err = getRoute(&GetRouteArg{Key: routeKey}); err == nil {
 		if session.Seq != seq {
 			log.Warn("invalid logout.session.Seq %d > seq %d.key:%s", session.Seq, seq, routeKey)
 			err = ErrInvalidReq
 			return
 		}
 	} else {
-		log.Error("doLogout delete session not found:%s.err:%v", key, err)
+		log.Error("doLogout delete session not found:%s.serverId:%d, err:%v", key, serverId, err)
 		has = false
 		err = nil
 		return
 	}
 
-	if has, err = Router.Del(&DelRouteArg{Key: routeKey}); err != nil {
-		log.Error("doLogout delete session failed:%s.err:%v", key, err)
+	if has, err = delRoute(&DelRouteArg{Key: routeKey}); err != nil {
+		log.Error("doLogout delete session failed:%s.serverId:%d, err:%v", key, serverId, err)
 	}
 
-	log.Info("doLogout ok.user:%s", key)
+	log.Info("doLogout ok.user:%s, serverId:%d", key, serverId)
 
 	return
 }
 
 func (r *RPC) doHeartbeat(serverId int32, key string, req *HeartbeatReq) (resp *HeartbeatResp, err error) {
 	if len(key) == 0 {
+		log.Error("doHeartbeat key is empty.serverId:%d", serverId)
 		err = ErrInvalidArgument
 		return
 	}
@@ -287,7 +300,8 @@ func (r *RPC) doHeartbeat(serverId int32, key string, req *HeartbeatReq) (resp *
 }
 
 func (r *RPC) doSendMsg(serverId int32, key string, req *SendMsgReq) (resp *SendMsgResp, err error) {
-	if len(key) == 0 || req == nil {
+	if len(key) == 0 || req == nil || req.TargetId == "" {
+		log.Error("doSendMsg invalid params.serverId:%d, key:%s, req:%v", serverId, key, req)
 		err = ErrInvalidArgument
 		return
 	}
@@ -302,6 +316,15 @@ func (r *RPC) doSendMsg(serverId int32, key string, req *SendMsgReq) (resp *Send
 		// sessions
 		targetUserIds  []string
 		targetSessions []*Session
+
+		// group user
+		groupUsers []GroupUser
+
+		// saveMsg
+		saveMsgReply *proto.SaveMsgReply
+
+		chatCode string
+		now      = util.GetTimestampMillSec()
 	)
 
 	if appId, userId, seq, err = decodeUserKey(key); err != nil {
@@ -315,22 +338,68 @@ func (r *RPC) doSendMsg(serverId int32, key string, req *SendMsgReq) (resp *Send
 		log.Error("sendmsg refresh route failed.key:%s, err:%v", key, err)
 	}
 
+	// msg notify
+	if req.TargetType == define.TARGET_USER {
+		// 单聊
+		if req.TargetId != userId {
+			targetUserIds = append(targetUserIds, req.TargetId)
+			chatCode = encodeSinleSessionCode(userId, req.TargetId)
+		}
+	} else if req.TargetType == define.TARGET_GROUP {
+		// 群聊
+		chatCode = encodeGroupSessionCode(req.TargetId)
+
+		groupUsers, err = getGroupUser(&GetGroupUserArg{
+			AppId:     appId,
+			GroupCode: req.TargetId,
+		})
+		if err != nil {
+			log.Error("get group user failed, appId:%s, groupCode:%, err:%v", appId, req.TargetId, err)
+			err = ErrInternalError
+			return
+		}
+
+		for _, groupUser := range groupUsers {
+			// 排除自身
+			if groupUser.UserId == userId {
+				continue
+			}
+			targetUserIds = append(targetUserIds, groupUser.UserId)
+		}
+	} else {
+		log.Error("unknown target type.target:%d, appid:%s", req.TargetType, appId)
+		err = ErrUnknownTarget
+		return
+	}
+
 	// save msg to db and get msgid
-	// TODO
-	msgId := int64(100)
+	msg := &proto.SaveMsgArg{
+		AppId:      appId,
+		ChatType:   req.TargetType,
+		ChatCode:   chatCode,
+		FromUserId: userId,
+		MsgData:    req.MsgData,
+		Tag:        req.Tag,
+		CreateTime: now,
+	}
+	if saveMsgReply, err = saveMsg(msg); err != nil {
+		log.Error("save msg failed.msg:%v, err:%v", *msg, err)
+		return
+	}
 
 	// reply to sender
 	resp = &SendMsgResp{
-		MsgId: msgId,
+		ChatMsgId:    saveMsgReply.ChatMsgId,
+		ChatPreMsgId: saveMsgReply.ChatPreMsgId,
 	}
 
-	// msg notify
-	if req.TargetType == define.TARGET_USER {
-		targetUserIds = append(targetUserIds, req.TargetId)
-	} else if req.TargetType == define.TARGET_GROUP {
-		// TODO: get group members
-	} else {
-		// error
+	//////////// msg notify ///////////////
+
+	if len(targetUserIds) == 0 {
+		// nothing to do
+		log.Debug("no target user.appid:%s, targetType:%d, targetId:%s",
+			appId, req.TargetType, req.TargetId)
+		return
 	}
 
 	// get target user sessions
@@ -340,8 +409,8 @@ func (r *RPC) doSendMsg(serverId int32, key string, req *SendMsgReq) (resp *Send
 			Key: encodeRouteKey(appId, targetUserId),
 		}
 	}
-	if targetSessions, err = Router.MGet(args); err != nil {
-		log.Error("get target user sessions failed.err:%v", err)
+	if targetSessions, err = mGetRoute(args); err != nil {
+		log.Error("get target user sessions failed.args:%v, err:%v", args, err)
 		return
 	}
 	//implied: len(targetSessions) == len(targetUserIds)
@@ -360,12 +429,16 @@ func (r *RPC) doSendMsg(serverId int32, key string, req *SendMsgReq) (resp *Send
 	// 发送msg
 	op := define.OP_MSG_NOTIFY
 	notify := MsgNotify{
-		FromUserId: userId,
 		TargetType: req.TargetType,
 		TargetId:   req.TargetId,
-		MsgMeta:    req.MsgMeta,
-		MsgData:    req.MsgData,
-		Tag:        req.Tag,
+		Msg: proto.MsgData{
+			FromUserId: userId,
+			MsgId:      saveMsgReply.ChatMsgId,
+			PreMsgId:   saveMsgReply.ChatPreMsgId,
+			MsgData:    req.MsgData,
+			Tag:        req.Tag,
+			CreateTime: now,
+		},
 	}
 	data, _ := json.Marshal(notify)
 
@@ -376,12 +449,82 @@ func (r *RPC) doSendMsg(serverId int32, key string, req *SendMsgReq) (resp *Send
 	return
 }
 
+func (r *RPC) doSyncMsg(serverId int32, key string, req *SyncMsgReq) (resp *SyncMsgResp, err error) {
+	if len(key) == 0 || req == nil || req.TargetId == "" {
+		log.Error("doSyncMsg invalid params.serverId:%d, key:%s, req:%v", serverId, key, req)
+		err = ErrInvalidArgument
+		return
+	}
+
+	log.Debug("receive syncmsg req:%v", *req)
+
+	var (
+		appId  string
+		userId string
+		seq    int32
+
+		chatCode string
+		reply    *proto.GetMsgListReply
+	)
+
+	if appId, userId, seq, err = decodeUserKey(key); err != nil {
+		log.Error("decode user key failed, key:%s, err:%v", key, err)
+		err = ErrInvalidArgument
+		return
+	}
+
+	// 路由维护
+	if err = refreshRoute(serverId, appId, userId, seq); err != nil {
+		log.Error("sendmsg refresh route failed.key:%s, err:%v", key, err)
+	}
+
+	if req.TargetType == define.TARGET_USER {
+		// 单聊
+		if req.TargetId != userId {
+			chatCode = encodeSinleSessionCode(userId, req.TargetId)
+		}
+	} else if req.TargetType == define.TARGET_GROUP {
+		// 群聊
+		chatCode = encodeGroupSessionCode(req.TargetId)
+	} else {
+		log.Error("unknown target type.target:%d, appid:%s", req.TargetType, appId)
+		err = ErrUnknownTarget
+		return
+	}
+
+	if chatCode == "" {
+		log.Error("get chat code failed.req:%v", *req)
+		err = ErrInvalidArgument
+		return
+	}
+
+	reply, err = getMsgList(&proto.GetMsgListArg{
+		AppId:      appId,
+		ChatType:   req.TargetType,
+		ChatCode:   chatCode,
+		StartMsgId: req.StartMsgId,
+		Direction:  req.Direction,
+		Count:      req.Count,
+	})
+	if err != nil {
+		log.Error("sync get msg list failed.req:%v, err:%v", *req, err)
+		return
+	}
+
+	resp = &SyncMsgResp{
+		MsgList: reply.MsgList,
+	}
+	log.Debug("getmsglist rpc reply:%v", resp.MsgList)
+
+	return
+}
+
 func refreshRoute(serverId int32, appId string, userId string, seq int32) (err error) {
 
 	var session *Session
 	routeKey := encodeRouteKey(appId, userId)
 
-	if session, err = Router.Get(&GetRouteArg{Key: routeKey}); err == nil {
+	if session, err = getRoute(&GetRouteArg{Key: routeKey}); err == nil {
 		if session.Seq > seq {
 			log.Warn("invalid refresh route.session.Seq %d > seq %d.key:%s", session.Seq, seq, routeKey)
 			err = ErrInvalidReq
@@ -390,7 +533,7 @@ func refreshRoute(serverId int32, appId string, userId string, seq int32) (err e
 	}
 
 	// 路由更新
-	if err = Router.Set(&SetRouteArg{Key: routeKey, Session: Session{ServerId: serverId, Seq: seq}}); err != nil {
+	if err = setRoute(&SetRouteArg{Key: routeKey, Session: Session{ServerId: serverId, Seq: seq}}); err != nil {
 		log.Error("login set route failed user %s to server %d", routeKey, serverId)
 		return
 	}

@@ -42,6 +42,7 @@ type Config struct {
 	Log     string `goconf:"base:log"`
 	MaxProc int    `goconf:"base:maxproc"`
 
+	ClientHeartbeat  int           `goconf:"base:client.heartbeat"`
 	RPCAddrs         []string      `goconf:"base:rpc.addrs:,"`
 	HTTPAddrs        []string      `goconf:"base:http.addrs:,"`
 	HTTPReadTimeout  time.Duration `goconf:"base:http.read.timeout:time"`
@@ -50,6 +51,11 @@ type Config struct {
 	// router
 	SessionExpireSec int `goconf:"router:session_expire_ts"`
 
+	// mysql
+	DbDsn     string `goconf:"mysql:dsn"`
+	DbMaxOpen int    `goconf:"mysql:max_open"`
+	DbMaxIdle int    `goconf:"mysql:max_idle"`
+
 	// redis
 	RedisAddr            string        `goconf:"redis:addr"`
 	RedisPoolMaxActive   int           `goconf:"redis:pool.max_active"`
@@ -57,9 +63,12 @@ type Config struct {
 	RedisPoolIdleTimeout time.Duration `goconf:"redis:pool.idle_timeout:time"`
 
 	// comet RPC
-	CometRPCAddrs map[int32]string `-`
-	RoutineSize   uint64           `goconf:"comet:routine.size"`
-	RoutineChan   int              `goconf:"comet:routine.chan"`
+	CometRPCAddrs map[int32]string
+	RoutineSize   uint64 `goconf:"comet:routine.size"`
+	RoutineChan   int    `goconf:"comet:routine.chan"`
+
+	// msg RPC
+	MsgAddrs []string `goconf:"msg:rpc.addrs:,"`
 
 	// monitor
 	MonitorOpen  bool     `goconf:"monitor:open"`
@@ -69,16 +78,21 @@ type Config struct {
 func NewConfig() *Config {
 	return &Config{
 		// base section
-		PidFile:       "/tmp/goim-logic.pid",
-		Dir:           "./",
-		Log:           "./logic-log.xml",
-		MaxProc:       runtime.NumCPU(),
-		HTTPAddrs:     []string{"7172"},
-		CometRPCAddrs: make(map[int32]string),
+		PidFile:         "/tmp/goim-logic.pid",
+		Dir:             "./",
+		Log:             "./logic-log.xml",
+		MaxProc:         runtime.NumCPU(),
+		HTTPAddrs:       []string{"7172"},
+		CometRPCAddrs:   make(map[int32]string),
+		ClientHeartbeat: 60,
 
 		// comet
 		RoutineSize: 16,
 		RoutineChan: 64,
+
+		// mysql
+		DbMaxOpen: 10,
+		DbMaxIdle: 1,
 
 		// redis
 		RedisAddr:            "localhost:6379",

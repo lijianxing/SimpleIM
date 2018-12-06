@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"myim/libs/util"
 	"runtime"
 
 	log "github.com/thinkboy/log4go"
@@ -13,6 +14,7 @@ var (
 
 func main() {
 	flag.Parse()
+
 	if err := InitConfig(); err != nil {
 		panic(err)
 	}
@@ -23,29 +25,34 @@ func main() {
 
 	DefaultStat = NewStat()
 
-	// commet rpc
-	err := InitComet(Conf.CometRPCAddrs, CometOptions{
+	// init mysql
+	if err := InitDBManager(&util.DbConfig{
+		Dsn:     Conf.DbDsn,
+		MaxOpen: Conf.DbMaxOpen,
+		MaxIdle: Conf.DbMaxIdle,
+	}); err != nil {
+		panic(err)
+	}
+
+	// init redis
+	if err := InitRedis(&util.RedisConfig{
+		Addr: Conf.RedisAddr, MaxActive: Conf.RedisPoolMaxActive, MaxIdle: Conf.RedisPoolMaxIdle,
+		IdleTimeout: Conf.RedisPoolIdleTimeout,
+	}); err != nil {
+		panic(err)
+	}
+
+	// init comet
+	if err := InitComet(Conf.CometRPCAddrs, CometOptions{
 		RoutineSize: Conf.RoutineSize,
 		RoutineChan: Conf.RoutineChan,
-	})
-	if err != nil {
+	}); err != nil {
 		panic(err)
 	}
 
-	// init router
-	err = InitRedisRouter(&RedisConfig{
-		Addr:        Conf.RedisAddr,
-		MaxActive:   Conf.RedisPoolMaxActive,
-		MaxIdle:     Conf.RedisPoolMaxIdle,
-		IdleTimeout: Conf.RedisPoolIdleTimeout,
-	})
-	if err != nil {
+	// msg rpc
+	if err := InitMsgRpc(Conf.MsgAddrs); err != nil {
 		panic(err)
-	}
-
-	// start monitor
-	if Conf.MonitorOpen {
-		InitMonitor(Conf.MonitorAddrs)
 	}
 
 	// logic rpc
@@ -55,6 +62,11 @@ func main() {
 
 	if err := InitHTTP(); err != nil {
 		panic(err)
+	}
+
+	// start monitor
+	if Conf.MonitorOpen {
+		InitMonitor(Conf.MonitorAddrs)
 	}
 
 	// block until a signal is received.

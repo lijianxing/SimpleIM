@@ -3,4 +3,7 @@ package define
 const (
 	TARGET_USER  = 1
 	TARGET_GROUP = 2
+
+	DIRECTION_FORWARD  = 0
+	DIRECTION_BACKWARD = 1
 )

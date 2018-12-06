@@ -5,26 +5,70 @@
     <script type="text/javascript">
         var ws;
         var seqid = 0;
-        function ToggleConnectionClicked() {
+
+        var appId = "";
+        var userId = "";
+        var targetType = 1;
+        var targetId = "";
+
+        var msgs = [];
+        var lastMsgId = 0;
+
+        function addMsg(msg) {
+            // todo, 排序，消息排重...
+            msgs.push(msg)
+            lastMsgId = msg.msgId;
+
+            // 界面更新
+            var content = "";
+            for (var i=0; i<msgs.length; i++) {
+                var msg = msgs[i]
+                var user = "";
+                if (msg.fromUserId == userId) {
+                    user = "我";
+                } else {
+                    user = msg.fromUserId;
+                }
+                content += user + "说:" + msg.data + "\r\n";
+            }
+            document.getElementById("Msgs").innerText = content;
+        }
+
+        function doLogin() {
             try {
+                appId = document.getElementById("AppId").value;
+                userId = document.getElementById("UserId").value;
+                targetId = document.getElementById("TargetId").value;
+
+                if (appId == "" || userId == "" || targetId == "") {
+                    alert("appid, userid ,targetid 必填")
+                    return
+                }
+
+                sel = document.getElementById("TargetType");
+                targetType = parseInt(sel.options[sel.selectedIndex].value);
+
                 ws = new WebSocket("ws://localhost:18090/sub");//连接服务器
                 //ws.binaryType = "arraybuffer";
                 ws.onopen = function (event) { 
                     // login
                     Login();
 
-                    setInterval(SendData, 3000);
+                    setInterval(SendHeartBeat, 30 * 1000);
+                    //setInterval(SyncMsg, 60 * 1000);
+                };
 
-                    alert("已经与服务器建立了连接rn当前连接状态：" + this.readyState); 
-                };
                 ws.onmessage = function (event) { 
-                    console.log("接收到服务器发送的数据：rn" + event.data); 
-                    //ReadData(event.data);
+                    console.log("接收到服务器发送的数据:" + event.data); 
+                    data = JSON.parse(event.data)
+                    ProcessMsg(data)
                 };
+
                 ws.onclose = function (event) { 
                     alert("已经与服务器断开连接rn当前连接状态：" + this.readyState); 
                     console.log('websocket 断开: ' + event.code + ' ' + event.reason + ' ' + event.wasClean)
                 };
+
                 ws.onerror = function (event) { alert("WebSocket异常！"); };
             } catch (ex) {
                 alert(ex.message);
@@ -37,20 +81,98 @@
                 op: 0,
                 seqid: seqid++,
                 body: {
-                    user_info: {app_id:"bilin", user_id:"456"}
+                    user_info: {
+                        app_id:appId, 
+                        user_id:userId,
+                    }
                 },
             };
             ws.send(JSON.stringify(proto));
         }
-        function SendData() {
+
+        function ProcessMsg(data) {
+            if (data.op == 1) { // login ok
+                console.log("begin to sync msg")
+                SyncMsg();
+                return
+            }
+
+            if (data.op == 5) { // send msg reply
+            }
+            else if (data.op == 6) { // msg notify
+                var msg = data.body.msg
+                addMsg({
+                    preMsgId: msg.pre_msgid,
+                    msgId: msg.msgid,
+                    fromUserId: msg.from_user_id,
+                    data: msg.msg_data,
+                })
+            }
+            else if (data.op == 9) { // sync reply
+                var msglist = data.body.msg_list
+                if (msglist == null) {
+                    return;
+                }
+                for (var i=0; i<msglist.length; i++) {
+                    var msg = msglist[i]
+                    addMsg({
+                        preMsgId: msg.pre_msgid,
+                        msgId: msg.msgid,
+                        fromUserId: msg.from_user_id,
+                        data: msg.msg_data,
+                    })
+                }
+            }
+        }
+
+        function SendHeartBeat() {
+            var proto = {
+                ver: 1,
+                op: 2,
+                seqid: seqid++,
+                body: null,
+             };
+            ws.send(JSON.stringify(proto));
+        }
+
+        function SyncMsg() {
+            proto = {
+                ver: 1,
+                op: 8,
+                seqid: seqid++,
+                body: {
+                    target_type: targetType,
+                    target_id: targetId,
+                    start_msgid: lastMsgId,
+                },
+             };
+            ws.send(JSON.stringify(proto));
+        }
+
+        function doSend() {
+            var msg = document.getElementById("Msg").value;
+            if (msg == "") {
+                return
+            }
+ 
             try {
                 var proto = {
                     ver: 1,
-                    op: 12,
+                    op: 4,
                     seqid: seqid++,
-                    body: null,
+                    body: {
+                        target_type: targetType, 
+                        target_id: targetId,
+                        msg_data: msg,
+                    },
                 };
                 ws.send(JSON.stringify(proto));
+                addMsg({
+                    preMsgId: 0,
+                    msgId: 0,
+                    fromUserId: userId,
+                    data: msg,
+                })
             } catch (ex) {
                 alert(ex.message);
             }
@@ -64,11 +186,27 @@
 </head>
 
 <body>
-    <button id='ToggleConnection' type="button" onclick='ToggleConnectionClicked();'>连接服务器</button><br /><br />
-    <!--
-    <button id='ToggleConnection' type="button" onclick='SendData();'>发送我的名字：lijx</button><br /><br />
-    -->
-    <button id='ToggleConnection' type="button" onclick='seestate();'>查看状态</button><br /><br />
+    AppId: <input id='AppId' type="text" value="bilin"><br/>
+    UserId: <input id='UserId' type="text" value="123"><br/>
+    ChatType: 
+    <select id="TargetType">
+        <option value=1>Single</option>
+        <option value=2>Group</option>
+    </select>
+    TargetId: <input id="TargetId" type="text" value="456">
+    <br>
+    <br>
+    <button id='Login' type="button" onclick='doLogin();'>登录</button>
+    <button id='Logout' type="button" onclick='doLogout();'>退出</button><br/>
+
+    <p></p>
+
+    <input id="Msg" type="text">
+    <button id='Send' type="button" onclick='doSend();'>发送</button><br /><br/>
+
+    <p>Msg</p>
+    <textarea id="Msgs" cols="100" rows="30" disabled></textarea>
+
 </body>
 
 </html>

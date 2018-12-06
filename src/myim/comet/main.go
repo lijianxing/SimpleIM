@@ -30,11 +30,6 @@ func main() {
 		panic(err)
 	}
 
-	// start monitor
-	if Conf.MonitorOpen {
-		InitMonitor(Conf.MonitorAddrs)
-	}
-
 	// new stat
 	stat := NewStat()
 
@@ -81,6 +76,11 @@ func main() {
 	// start rpc
 	if err := InitRPCPush(Conf.RPCPushAddrs); err != nil {
 		panic(err)
+	}
+
+	// start monitor
+	if Conf.MonitorOpen {
+		InitMonitor(Conf.MonitorAddrs)
 	}
 
 	// block until a signal is received.

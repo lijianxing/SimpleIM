@@ -11,6 +11,7 @@ var (
 	ErrDuplicatedReq   = errors.New("duplicate req")
 	ErrInternalError   = errors.New("internal error")
 	ErrInvalidArgument = errors.New("invalid argument")
+	ErrUnknownTarget   = errors.New("unknown target")
 
 	ErrRouter         = errors.New("router rpc is not available")
 	ErrDecodeKey      = errors.New("decode key error")
