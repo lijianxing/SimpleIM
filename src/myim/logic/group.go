@@ -42,7 +42,7 @@ func getGroupUser(arg *GetGroupUserArg) (groupUsers []GroupUser, err error) {
 	}
 
 	sqlStr = "select igu.user_id as user_id from im_group ig, im_group_user igu where igu.group_id = ig.id" +
-		"and ig.app_id=? and ig.group_code=?"
+		" and ig.app_id=? and ig.group_code=?"
 
 	db := DBManager.GetDB()
 	if rows, err = db.Query(sqlStr, arg.AppId, arg.GroupCode); err != nil {

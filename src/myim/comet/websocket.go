@@ -308,7 +308,6 @@ func (server *Server) authWebsocket(ws *websocket.Conn, p *proto.Proto) (key str
 	if key, heartbeat, err = server.operator.Connect(p); err != nil {
 		return
 	}
-	p.Body = nil
 	p.Operation = define.OP_LOGIN_REPLY
 	if err = p.WriteWebsocket(ws); err != nil {
 		return

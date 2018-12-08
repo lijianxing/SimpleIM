@@ -1,0 +1,202 @@
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>WebIm Demo</title>
+    <script src="./webim.js"></script>
+
+    <script type="text/javascript">
+        var appId = "";
+        var userId = "";
+        var targetType = 1;
+        var targetId = "";
+
+        var chatMsgs = [];
+
+        var imClient = null;
+
+        function doLogin() {
+            appId = document.getElementById("AppId").value;
+            userId = document.getElementById("UserId").value;
+            targetId = document.getElementById("TargetId").value;
+
+            if (appId == "" || userId == "" || targetId == "") {
+                alert("appid, userid ,targetid 必填")
+                return
+            }
+
+            sel = document.getElementById("TargetType");
+            targetType = parseInt(sel.options[sel.selectedIndex].value);
+
+            var token = "123";
+            imClient = new WebIm("ws://localhost:18090/sub", appId, userId, token, targetType, targetId, 
+            {
+                onStart: function() {
+                    console.log("onStart");
+                    document.getElementById("Login").disabled = true; 
+                    document.getElementById("Logout").disabled = false; 
+                    document.getElementById("Send").disabled = false; 
+                }, 
+
+                onMessage: function(msg) {
+                    console.log("onMsg:" + JSON.stringify(msg));
+                    addMsg(msg);
+                },
+
+                onStop: function() {
+                    console.log("onStop");
+                    // do reconnect
+                    if (imClient != null) {
+                        setTimeout(function() {
+                            if (imClient != null) {
+                                imClient.reConnect()
+                            }
+                        }, 3*1000);
+                    }
+                }
+            });
+        };
+
+        function doSend() {
+            if (!imClient) {
+                console.log("im not init");
+                return;
+            }
+            var msg = document.getElementById("Msg").value;
+            if (msg == "") {
+                return
+            }
+            var msgData = {
+                preMsgId: 0,
+                msgId: 0,
+                fromUserId: userId,
+                msgData: msg,
+            }
+
+            var seq = imClient.getNextSeq();
+            imClient.sendMsg(seq, msg, function(msgId, preMsgId) {
+                msgData.msgId = msgId;
+                msgData.preMsgId = preMsgId;
+                addMsg(msgData)
+            }, function() {
+                alert("消息发送失败:" + msg);
+            });
+
+            document.getElementById("Msg").value = "";
+        };
+
+        function addMsg(msg) {
+            // 去重
+            for (var i=0; i<chatMsgs.length; i++) {
+                if (msg.msgId == chatMsgs[i].msgId) {
+                    console.log("duplicated msg:" + JSON.stringify(msg));
+                    return;
+                }
+            }
+            chatMsgs.push(msg)
+            // 排序
+            for (var i=chatMsgs.length-1; i>0; i--) {
+                if (chatMsgs[i].msgId < chatMsgs[i-1].msgId) {
+                    var tmp = chatMsgs[i-1]; 
+                    chatMsgs[i-1] = chatMsgs[i];
+                    chatMsgs[i] = tmp;
+                }
+            }
+
+            updateMsgContent();
+        }
+
+        function updateMsgContent() {
+            // 界面更新
+            var content = "";
+            for (var i=0; i<chatMsgs.length; i++) {
+                var msg = chatMsgs[i]
+                var user = "";
+                if (msg.fromUserId == userId) {
+                    user = "我";
+                } else {
+                    user = msg.fromUserId;
+                }
+                content += user + "说:" + msg.msgData + "\r\n";
+            }
+            document.getElementById("Msgs").innerText = content;
+        }
+
+        function doLogout() {
+            if (imClient != null) {
+                imClient.logout();
+                imClient = null;
+            }
+            document.getElementById("Login").disabled = false; 
+            document.getElementById("Logout").disabled = true; 
+            document.getElementById("Send").disabled = true; 
+
+            // clear current msg list
+            chatMsgs = [];
+            document.getElementById("Msgs").innerText = "";
+        }
+    </script>
+
+    <style>
+        body {
+            margin: 20px;
+        }
+        .setting div {
+            padding-top: 5px;
+        }
+        .setting input,select {
+            margin-left: 10px;
+        }
+        .op button {
+            margin-top: 10px;
+            margin-right: 10px;
+            width: 60px;
+        }
+        .sendbox {
+            margin-top: 20px;
+        }
+        .sendbox input {
+            width: 200px;
+        }
+        .msgs {
+            margin-top: 10px;
+        }
+        .msgs textarea {
+            margin-top: 10px;
+            color: blue;
+            font-size: 15px;
+            resize: none;
+            overflow:scroll;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="setting">
+        <div>AppId <input id='AppId' type="text" value="bilin"></div>
+        <div>UserId <input id='UserId' type="text" value="123"></div>
+        <div>
+            ChatType 
+            <select id="TargetType">
+                <option value=1>Single</option>
+                <option value=2>Group</option>
+            </select>
+            TargetId <input id="TargetId" type="text" value="456">
+        </div>
+    </div>
+    <div class="op">
+        <button id='Login' type="button" onclick='doLogin();'>登录</button>
+        <button id='Logout' type="button" onclick='doLogout();' disabled>退出</button><br/>
+    </div>
+
+    <div class="msgs">
+        <div>Msg</div>
+        <textarea id="Msgs" cols="50" rows="20" disabled></textarea>
+    </div>
+    <div class="sendbox">
+        <input id="Msg" type="text">
+        <button id='Send' type="button" onclick='doSend();' disabled>发送</button><br /><br/>
+    </div>
+
+</body>
+
+</html>

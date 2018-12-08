@@ -279,7 +279,6 @@ func (server *Server) authTCP(rr *bufio.Reader, wr *bufio.Writer, p *proto.Proto
 	if key, heartbeat, err = server.operator.Connect(p); err != nil {
 		return
 	}
-	p.Body = nil
 	p.Operation = define.OP_LOGIN_REPLY
 	if err = p.WriteTCP(wr); err != nil {
 		return

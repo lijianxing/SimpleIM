@@ -40,8 +40,3 @@ type MPushMsgsReply struct {
 type BoardcastArg struct {
 	P Proto
 }
-
-type BoardcastRoomArg struct {
-	RoomId int32
-	P      Proto
-}

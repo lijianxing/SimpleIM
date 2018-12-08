@@ -16,7 +16,7 @@ const (
 
 type ChatData struct {
 	appId    string
-	chatType int
+	chatType int32
 	chatCode string
 
 	// 读消息副本, 读写可并发
@@ -30,7 +30,7 @@ type ChatData struct {
 	chatQueue      *ChatQueue
 }
 
-func NewChatData(appId string, chatType int, chatCode string, msgs int) *ChatData {
+func NewChatData(appId string, chatType int32, chatCode string, msgs int) *ChatData {
 	cd := new(ChatData)
 	cd.chatQueue = NewChatQueue(msgs)
 
@@ -63,11 +63,12 @@ func NewBucket(msgs int, chat int, expire time.Duration) *Bucket {
 
 func (b *Bucket) SaveMsg(chatKey string, arg *proto.SaveMsgArg, reply *proto.SaveMsgReply) (err error) {
 	var (
-		cd       *ChatData
-		ok       bool
-		msgId    int64
-		preMsgId int64
-		msgList  []*proto.MsgData
+		cd         *ChatData
+		ok         bool
+		msgId      int64
+		preMsgId   int64
+		msgList    []*proto.MsgData
+		preMsgList []proto.MsgData
 	)
 	b.bLock.Lock()
 	if cd, ok = b.chats[chatKey]; !ok {
@@ -92,7 +93,7 @@ func (b *Bucket) SaveMsg(chatKey string, arg *proto.SaveMsgArg, reply *proto.Sav
 			ChatCode:   arg.ChatCode,
 			StartMsgId: 0, // no start msg id
 			Direction:  define.DIRECTION_FORWARD,
-			Count:      b.msgs,
+			Count:      int32(b.msgs),
 		})
 		if err != nil {
 			cd.chatMutex.Unlock()
@@ -106,6 +107,35 @@ func (b *Bucket) SaveMsg(chatKey string, arg *proto.SaveMsgArg, reply *proto.Sav
 
 		// add to chat queue
 		cd.chatQueueReady = true
+	}
+
+	if arg.LastMsgId > 0 {
+		cacheMsgs := cd.chatQueue.GetMsgList()
+		cacheMsgLen := len(cacheMsgs)
+		if cacheMsgLen > 0 {
+			idx := -1
+			for i := 0; i < cacheMsgLen; i++ {
+				if cacheMsgs[i].MsgId == arg.LastMsgId {
+					idx = i
+					break
+				}
+			}
+			if idx >= 0 {
+				for i := idx + 1; i < cacheMsgLen; i++ {
+					preMsgList = append(preMsgList, *cacheMsgs[i])
+				}
+				if len(preMsgList) > 0 {
+					log.Warn("found client lost msg.chatKey:%s, len=%d", chatKey, len(preMsgList))
+				}
+			} else {
+				// msg gap is larger than cache msg, just reply error let client do msg sync
+				cd.chatMutex.Unlock()
+				err = ErrLostTooManyMsg
+				log.Error("client lost too many msg.chatKey:%s, startMsgId:%d, cacheStartMsgId:%d",
+					chatKey, arg.LastMsgId, cacheMsgs[0].MsgId)
+				return
+			}
+		}
 	}
 
 	// save msg to db
@@ -126,8 +156,9 @@ func (b *Bucket) SaveMsg(chatKey string, arg *proto.SaveMsgArg, reply *proto.Sav
 		CreateTime: arg.CreateTime,
 	})
 
-	reply.ChatMsgId = msgId
-	reply.ChatPreMsgId = preMsgId
+	reply.MsgId = msgId
+	reply.PreMsgId = preMsgId
+	reply.PreMsgList = preMsgList
 
 	msgList = cd.chatQueue.GetMsgList()
 
@@ -171,7 +202,7 @@ func (b *Bucket) GetMsgList(chatKey string, arg *proto.GetMsgListArg, reply *pro
 			ChatCode:   arg.ChatCode,
 			StartMsgId: 0, // no start msg id
 			Direction:  define.DIRECTION_FORWARD,
-			Count:      b.msgs,
+			Count:      int32(b.msgs),
 		})
 		if err != nil {
 			cd.msgMutex.Unlock()
@@ -195,7 +226,7 @@ func (b *Bucket) GetMsgList(chatKey string, arg *proto.GetMsgListArg, reply *pro
 	// find cache
 	cacheHit := false
 	start := 0
-	count := arg.Count
+	count := int(arg.Count)
 
 	if msgLen == 0 {
 		// no msg right now, just return empty list
@@ -213,11 +244,11 @@ func (b *Bucket) GetMsgList(chatKey string, arg *proto.GetMsgListArg, reply *pro
 				}
 			}
 			if endIdx >= 0 {
-				if endIdx+1 >= arg.Count {
+				if endIdx+1 >= int(arg.Count) {
 					// 数据足够
 					cacheHit = true
-					start = endIdx + 1 - arg.Count
-					count = arg.Count
+					start = endIdx + 1 - int(arg.Count)
+					count = int(arg.Count)
 				} else if cd.msgList[0].PreMsgId == 0 {
 					// 数据不够但到头了
 					cacheHit = true
@@ -231,10 +262,10 @@ func (b *Bucket) GetMsgList(chatKey string, arg *proto.GetMsgListArg, reply *pro
 				count = 0
 			}
 		} else {
-			if arg.Count <= msgLen {
+			if int(arg.Count) <= msgLen {
 				cacheHit = true
-				start = msgLen - arg.Count
-				count = arg.Count
+				start = msgLen - int(arg.Count)
+				count = int(arg.Count)
 			} else if cd.msgList[0].PreMsgId == 0 {
 				// 没有前置消息
 				cacheHit = true
@@ -256,7 +287,7 @@ func (b *Bucket) GetMsgList(chatKey string, arg *proto.GetMsgListArg, reply *pro
 				// hit
 				cacheHit = true
 				start = startIdx
-				count = arg.Count
+				count = int(arg.Count)
 			} else if startIdx < 0 {
 				// 没有新的数据了
 				cacheHit = true
@@ -265,11 +296,11 @@ func (b *Bucket) GetMsgList(chatKey string, arg *proto.GetMsgListArg, reply *pro
 			}
 		} else {
 			cacheHit = true
-			start = msgLen - arg.Count
+			start = msgLen - int(arg.Count)
 			if start < 0 {
 				start = 0
 			}
-			count = arg.Count
+			count = int(arg.Count)
 		}
 	}
 

@@ -2,36 +2,38 @@ package proto
 
 type SaveMsgArg struct {
 	AppId      string
-	ChatType   int
+	ChatType   int32
 	ChatCode   string
 	FromUserId string
+	LastMsgId  int64
 	MsgData    string
 	Tag        string
 	CreateTime int64
 }
 
 type SaveMsgReply struct {
-	ChatMsgId    int64
-	ChatPreMsgId int64
+	MsgId      int64
+	PreMsgId   int64
+	PreMsgList []MsgData
 }
 
 type MsgData struct {
-	MsgId      int64  `json:"msgid"`
-	PreMsgId   int64  `json:"pre_msgid"`
-	FromUserId string `json:"from_user_id"`
-	MsgData    string `json:"msg_data"`
-	Tag        string `json:"msg_tag"`
-	CreateTime int64  `json:"create_time"`
+	MsgId      int64  `json:"msgId"`
+	PreMsgId   int64  `json:"preMsgId"`
+	FromUserId string `json:"fromUserId"`
+	MsgData    string `json:"msgData"`
+	Tag        string `json:"tag"`
+	CreateTime int64  `json:"createTime"`
 }
 
 type GetMsgListArg struct {
 	AppId    string
-	ChatType int
+	ChatType int32
 	ChatCode string
 
 	StartMsgId int64 // 下翻要比该id大，上翻要比该id小
-	Direction  int   // 下翻:0(默认) 上翻:1
-	Count      int
+	Direction  int32 // 下翻:0(默认) 上翻:1
+	Count      int32
 }
 
 type GetMsgListReply struct {

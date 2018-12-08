@@ -111,15 +111,15 @@ func getMsgListDb(arg *proto.GetMsgListArg) (msgList []*proto.MsgData, err error
 	}
 
 	if arg.StartMsgId > 0 && arg.Direction == define.DIRECTION_FORWARD {
-		if msgLen > arg.Count {
+		if msgLen > int(arg.Count) {
 			msgList = msgList[0:arg.Count]
 		}
 		if msgLen > 0 {
 			msgList[0].PreMsgId = arg.StartMsgId // FIXME: Not Reliable
 		}
 	} else {
-		if msgLen > arg.Count {
-			msgList = msgList[msgLen-arg.Count:]
+		if msgLen > int(arg.Count) {
+			msgList = msgList[msgLen-int(arg.Count):]
 		}
 	}
 	return

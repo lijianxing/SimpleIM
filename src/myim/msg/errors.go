@@ -12,6 +12,7 @@ var (
 	ErrInvalidArgument = errors.New("invalid argument")
 	ErrUnknownTarget   = errors.New("unknown target")
 
-	ErrDecodeKey   = errors.New("decode key error")
-	ErrNetworkAddr = errors.New("network addrs error, must network@address")
+	ErrLostTooManyMsg = errors.New("client lost too many msgs")
+	ErrDecodeKey      = errors.New("decode key error")
+	ErrNetworkAddr    = errors.New("network addrs error, must network@address")
 )

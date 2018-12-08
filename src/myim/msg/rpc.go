@@ -90,6 +90,6 @@ func (r *MsgRPC) GetMsgList(arg *proto.GetMsgListArg, reply *proto.GetMsgListRep
 	return
 }
 
-func genChatKey(appId string, chatType int, chatCode string) string {
+func genChatKey(appId string, chatType int32, chatCode string) string {
 	return fmt.Sprintf("%s_%d_%s", appId, chatType, chatCode)
 }

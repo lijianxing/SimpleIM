@@ -114,3 +114,11 @@ func (cq *ChatQueue) AddMsg(msg *proto.MsgData) (preMsgId int64) {
 func (cq *ChatQueue) GetMsgList() (msgList []*proto.MsgData) {
 	return cq.msgQueue.GetMsgList()
 }
+
+func (cq *ChatQueue) GetFirst() *proto.MsgData {
+	return cq.msgQueue.GetFirst()
+}
+
+func (cq *ChatQueue) GetLast() *proto.MsgData {
+	return cq.msgQueue.GetLast()
+}

@@ -1,9 +1,12 @@
 package main
 
 import (
+	"fmt"
+	"myim/libs/define"
 	inet "myim/libs/net"
 	"myim/libs/net/xrpc"
 	"myim/libs/proto"
+	"net/rpc"
 	"time"
 
 	log "github.com/thinkboy/log4go"
@@ -59,6 +62,7 @@ func connect(p *proto.Proto) (key string, heartbeat time.Duration, err error) {
 		err = ErrAuthFailed
 		return
 	}
+	p.Body = reply.Data
 
 	key = reply.Key
 	heartbeat = time.Duration(reply.Heartbeat) * time.Second
@@ -85,6 +89,14 @@ func operate(key string, p *proto.Proto) (err error) {
 	)
 	if err = logicRpcClient.Call(logicServiceOperate, &arg, &reply); err != nil {
 		log.Error("c.Call(\"%s\", \"%v\", &ret) error(%v)", logicServiceOperate, arg, err)
+		// 连接错误处理
+		if err == xrpc.ErrNoClient || err == xrpc.ErrRpcTimeout || err == rpc.ErrShutdown {
+			if replyForErrShutdown(key, p) {
+				// ok
+				return nil
+			}
+			return
+		}
 		return
 	}
 
@@ -92,4 +104,19 @@ func operate(key string, p *proto.Proto) (err error) {
 	p.Body = reply.Data
 
 	return
+}
+
+func replyForErrShutdown(key string, p *proto.Proto) bool {
+	errResp := []byte(fmt.Sprintf("{\"retCode\":%d}", define.RC_ERROR))
+	switch p.Operation {
+	case define.OP_SEND_MSG:
+		p.Operation = define.OP_SEND_MSG_REPLY
+		p.Body = errResp
+	case define.OP_MSG_SYNC:
+		p.Operation = define.OP_MSG_SYNC_REPLY
+		p.Body = errResp
+	default:
+		return false
+	}
+	return true
 }
