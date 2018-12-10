@@ -2,6 +2,7 @@ package util
 
 import (
 	"database/sql"
+	"log"
 
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -34,4 +35,11 @@ func (mysql *MysqlConnPool) Init(config *DbConfig) (err error) {
 
 func (mysql *MysqlConnPool) GetDB() *sql.DB {
 	return mysql.db
+}
+
+func ClearTransaction(tx *sql.Tx) {
+	err := tx.Rollback()
+	if err != sql.ErrTxDone && err != nil {
+		log.Fatalln(err)
+	}
 }

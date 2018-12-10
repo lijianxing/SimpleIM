@@ -11,14 +11,38 @@ import (
 	log "github.com/thinkboy/log4go"
 )
 
+type CreateGroupReq struct {
+	AppId     string `json:"appId"`
+	GroupCode string `json:"groupCode"`
+	GroupName string `json:"groupName"`
+}
+
+type AddGroupUsersReq struct {
+	AppId     string   `json:"appId"`
+	GroupCode string   `json:"groupCode"`
+	UserIds   []string `json:"userIds"`
+}
+
+type RemoveGroupUsersReq struct {
+	AppId     string   `json:"appId"`
+	GroupCode string   `json:"groupCode"`
+	UserIds   []string `json:"userIds"`
+}
+
+type GetGroupUsersReq struct {
+	AppId     string `json:"appId"`
+	GroupCode string `json:"groupCode"`
+}
+
 func InitHTTP() (err error) {
 	// http listen
 	var network, addr string
 	for i := 0; i < len(Conf.HTTPAddrs); i++ {
 		httpServeMux := http.NewServeMux()
-		httpServeMux.HandleFunc("/1/push", Push)
-		httpServeMux.HandleFunc("/1/pushs", Pushs)
-		httpServeMux.HandleFunc("/1/push/all", PushAll)
+		httpServeMux.HandleFunc("/group/create", CreateGroup)
+		httpServeMux.HandleFunc("/group/user/list", GetGroupUsers)
+		httpServeMux.HandleFunc("/group/user/add", AddGroupUsers)
+		httpServeMux.HandleFunc("/group/user/remove", RemoveGroupUsers)
 		log.Info("start http listen:\"%s\"", Conf.HTTPAddrs[i])
 		if network, addr, err = inet.ParseNetwork(Conf.HTTPAddrs[i]); err != nil {
 			log.Error("inet.ParseNetwork() error(%v)", err)
@@ -44,8 +68,14 @@ func httpListen(mux *http.ServeMux, network, addr string) {
 }
 
 // retWrite marshal the result and write to client(get).
-func retWrite(w http.ResponseWriter, r *http.Request, res map[string]interface{}, start time.Time) {
-	data, err := json.Marshal(res)
+func retWrite(w http.ResponseWriter, r *http.Request, body []byte, rc *RetCode, res *interface{}, start time.Time) {
+	resMap := map[string]interface{}{}
+	resMap["code"] = rc.Code
+	resMap["msg"] = rc.Msg
+	if res != nil && *res != nil {
+		resMap["data"] = res
+	}
+	data, err := json.Marshal(resMap)
 	if err != nil {
 		log.Error("json.Marshal(\"%v\") error(%v)", res, err)
 		return
@@ -54,116 +84,215 @@ func retWrite(w http.ResponseWriter, r *http.Request, res map[string]interface{}
 	if _, err := w.Write([]byte(dataStr)); err != nil {
 		log.Error("w.Write(\"%s\") error(%v)", dataStr, err)
 	}
-	log.Info("req: \"%s\", get: res:\"%s\", ip:\"%s\", time:\"%fs\"", r.URL.String(), dataStr, r.RemoteAddr, time.Now().Sub(start).Seconds())
+	log.Info("req: \"%s\", body:%s, get: res:\"%s\", ip:\"%s\", time:\"%fs\"",
+		r.URL.String(), string(body), dataStr, r.RemoteAddr, time.Now().Sub(start).Seconds())
 }
 
-// retPWrite marshal the result and write to client(post).
-func retPWrite(w http.ResponseWriter, r *http.Request, res map[string]interface{}, body *string, start time.Time) {
-	data, err := json.Marshal(res)
-	if err != nil {
-		log.Error("json.Marshal(\"%v\") error(%v)", res, err)
-		return
-	}
-	dataStr := string(data)
-	if _, err := w.Write([]byte(dataStr)); err != nil {
-		log.Error("w.Write(\"%s\") error(%v)", dataStr, err)
-	}
-	log.Info("req: \"%s\", post: \"%s\", res:\"%s\", ip:\"%s\", time:\"%fs\"", r.URL.String(), *body, dataStr, r.RemoteAddr, time.Now().Sub(start).Seconds())
-}
-
-func Push(w http.ResponseWriter, r *http.Request) {
+func CreateGroup(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(w, "Method Not Allowed", 405)
 		return
 	}
-	// var (
-	// body string
-	// bodyBytes []byte
-	// err error
-	// uidStr    = r.URL.Query().Get("uid")
-	// res = map[string]interface{}{"ret": OK}
-	// )
-	// defer retPWrite(w, r, res, &body, time.Now())
-	// if bodyBytes, err = ioutil.ReadAll(r.Body); err != nil {
-	// 	log.Error("ioutil.ReadAll() failed (%s)", err)
-	// 	res["ret"] = InternalErr
-	// 	return
-	// }
-	// body = string(bodyBytes)
-	// if userId, err = strconv.ParseInt(uidStr, 10, 64); err != nil {
-	// 	log.Error("strconv.Atoi(\"%s\") error(%v)", uidStr, err)
-	// 	res["ret"] = InternalErr
-	// 	return
-	// }
-	// res["ret"] = OK
-	return
-}
 
-type pushsBodyMsg struct {
-	Msg     json.RawMessage `json:"m"`
-	UserIds []int64         `json:"u"`
-}
-
-func parsePushsBody(body []byte) (msg []byte, userIds []int64, err error) {
-	tmp := pushsBodyMsg{}
-	if err = json.Unmarshal(body, &tmp); err != nil {
-		return
-	}
-	msg = tmp.Msg
-	userIds = tmp.UserIds
-	return
-}
-
-// {"m":{"test":1},"u":"1,2,3"}
-func Pushs(w http.ResponseWriter, r *http.Request) {
-	// if r.Method != "POST" {
-	// 	http.Error(w, "Method Not Allowed", 405)
-	// 	return
-	// }
-	// var (
-	// 	body      string
-	// 	bodyBytes []byte
-	// 	serverId  int32
-	// 	userIds   []int64
-	// 	err       error
-	// 	res       = map[string]interface{}{"ret": OK}
-	// 	subKeys   map[int32][]string
-	// 	keys      []string
-	// )
-	// defer retPWrite(w, r, res, &body, time.Now())
-	// if bodyBytes, err = ioutil.ReadAll(r.Body); err != nil {
-	// 	log.Error("ioutil.ReadAll() failed (%s)", err)
-	// 	res["ret"] = InternalErr
-	// 	return
-	// }
-	// body = string(bodyBytes)
-	// if bodyBytes, userIds, err = parsePushsBody(bodyBytes); err != nil {
-	// 	log.Error("parsePushsBody(\"%s\") error(%s)", body, err)
-	// 	res["ret"] = InternalErr
-	// 	return
-	// }
-	// res["ret"] = OK
-	return
-}
-
-func PushAll(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		http.Error(w, "Method Not Allowed", 405)
-		return
-	}
 	var (
 		bodyBytes []byte
-		body      string
 		err       error
-		res       = map[string]interface{}{"ret": OK}
+		res       interface{}
+		rc        RetCode
+		groupInfo *GroupInfo
 	)
-	defer retPWrite(w, r, res, &body, time.Now())
+
 	if bodyBytes, err = ioutil.ReadAll(r.Body); err != nil {
-		log.Error("ioutil.ReadAll() failed (%v)", err)
-		res["ret"] = InternalErr
+		log.Error("ioutil.ReadAll() failed (%s)", err)
 		return
 	}
-	body = string(bodyBytes)
-	res["ret"] = OK
+	defer retWrite(w, r, bodyBytes, &rc, &res, time.Now())
+
+	var req CreateGroupReq
+	err = json.Unmarshal(bodyBytes, &req)
+	if err != nil {
+		log.Error("parse body failed.body:%s", string(bodyBytes))
+		rc = InvalidParams
+		return
+	}
+
+	if req.AppId == "" || req.GroupCode == "" {
+		log.Error("create group req missing appid or groupcode.", string(bodyBytes))
+		rc = InvalidParams
+		return
+	}
+
+	groupInfo, err = getGroup(&GetGroupArg{
+		AppId:     req.AppId,
+		GroupCode: req.GroupCode,
+	})
+	if err != nil {
+		log.Error("check group exist failed.req:%v, err:%v", req, err)
+		rc = ServerError
+		return
+	}
+	if groupInfo != nil {
+		log.Error("create group exist.req:%v", req)
+		rc = RecordExist
+		return
+	}
+
+	err = createGroup(&CreateGroupArg{
+		AppId:     req.AppId,
+		GroupCode: req.GroupCode,
+		GroupName: req.GroupName,
+	})
+	if err != nil {
+		log.Error("create group failed.req:%v, err:%v", req, err)
+		rc = ServerError
+		return
+	}
+
+	rc = OK
+	return
+}
+
+func AddGroupUsers(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method Not Allowed", 405)
+		return
+	}
+
+	var (
+		bodyBytes []byte
+		err       error
+		res       interface{}
+		rc        RetCode
+	)
+
+	if bodyBytes, err = ioutil.ReadAll(r.Body); err != nil {
+		log.Error("ioutil.ReadAll() failed (%s)", err)
+		return
+	}
+	defer retWrite(w, r, bodyBytes, &rc, &res, time.Now())
+
+	var req AddGroupUsersReq
+	err = json.Unmarshal(bodyBytes, &req)
+	if err != nil {
+		log.Error("parse body failed.body:%s", string(bodyBytes))
+		rc = InvalidParams
+		return
+	}
+
+	if req.AppId == "" || req.GroupCode == "" || len(req.UserIds) == 0 {
+		log.Error("add group users req missing appid, groupcode or userids.", string(bodyBytes))
+		rc = InvalidParams
+		return
+	}
+
+	err = addGroupUsers(&AddGroupUsersArg{
+		AppId:     req.AppId,
+		GroupCode: req.GroupCode,
+		UserIds:   req.UserIds,
+	})
+	if err != nil {
+		log.Error("add group users failed.req:%v, err:%v", req, err)
+		rc = ServerError
+		return
+	}
+
+	rc = OK
+	return
+}
+
+func RemoveGroupUsers(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method Not Allowed", 405)
+		return
+	}
+
+	var (
+		bodyBytes []byte
+		err       error
+		res       interface{}
+		rc        RetCode
+	)
+
+	if bodyBytes, err = ioutil.ReadAll(r.Body); err != nil {
+		log.Error("ioutil.ReadAll() failed (%s)", err)
+		return
+	}
+	defer retWrite(w, r, bodyBytes, &rc, &res, time.Now())
+
+	var req RemoveGroupUsersReq
+	err = json.Unmarshal(bodyBytes, &req)
+	if err != nil {
+		log.Error("parse body failed.body:%s", string(bodyBytes))
+		rc = InvalidParams
+		return
+	}
+
+	if req.AppId == "" || req.GroupCode == "" || len(req.UserIds) == 0 {
+		log.Error("remove group req missing appid, groupcode or userids.", string(bodyBytes))
+		rc = InvalidParams
+		return
+	}
+
+	err = removeGroupUsers(&RemoveGroupUsersArg{
+		AppId:     req.AppId,
+		GroupCode: req.GroupCode,
+		UserIds:   req.UserIds,
+	})
+	if err != nil {
+		log.Error("remove group users failed.req:%v, err:%v", req, err)
+		rc = ServerError
+		return
+	}
+
+	rc = OK
+	return
+}
+
+func GetGroupUsers(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method Not Allowed", 405)
+		return
+	}
+
+	var (
+		bodyBytes  []byte
+		err        error
+		res        interface{}
+		rc         RetCode
+		groupUsers []string
+	)
+
+	if bodyBytes, err = ioutil.ReadAll(r.Body); err != nil {
+		log.Error("ioutil.ReadAll() failed (%s)", err)
+		return
+	}
+	defer retWrite(w, r, bodyBytes, &rc, &res, time.Now())
+
+	var req GetGroupUsersReq
+	err = json.Unmarshal(bodyBytes, &req)
+	if err != nil {
+		log.Error("parse body failed.body:%s", string(bodyBytes))
+		rc = InvalidParams
+		return
+	}
+
+	if req.AppId == "" || req.GroupCode == "" {
+		log.Error("get group users req missing appid, groupcode.", string(bodyBytes))
+		rc = InvalidParams
+		return
+	}
+
+	groupUsers, err = getGroupUsers(&GetGroupUsersArg{
+		AppId:     req.AppId,
+		GroupCode: req.GroupCode,
+	})
+	if err != nil {
+		log.Error("add group users failed.req:%v, err:%v", req, err)
+		rc = ServerError
+		return
+	}
+	res = groupUsers
+
+	rc = OK
 	return
 }

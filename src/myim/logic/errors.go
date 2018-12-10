@@ -19,4 +19,6 @@ var (
 	ErrConnectArgs    = errors.New("connect rpc args error")
 	ErrDisconnectArgs = errors.New("disconnect rpc args error")
 	ErrOperateArgs    = errors.New("operate rpc args error")
+
+	ErrGroupNotFound = errors.New("group not found")
 )

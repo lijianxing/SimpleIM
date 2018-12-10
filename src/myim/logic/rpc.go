@@ -329,7 +329,7 @@ func (r *RPC) doSendMsg(serverId int32, key string, req *SendMsgReq) (*SendMsgRe
 		targetSessions []*Session
 
 		// group user
-		groupUsers []GroupUser
+		groupUsers []string
 
 		// saveMsg
 		saveMsgReply *proto.SaveMsgReply
@@ -364,7 +364,7 @@ func (r *RPC) doSendMsg(serverId int32, key string, req *SendMsgReq) (*SendMsgRe
 		// 群聊
 		chatCode = encodeGroupSessionCode(req.TargetId)
 
-		groupUsers, err = getGroupUser(&GetGroupUserArg{
+		groupUsers, err = getGroupUsers(&GetGroupUsersArg{
 			AppId:     appId,
 			GroupCode: req.TargetId,
 		})
@@ -375,10 +375,10 @@ func (r *RPC) doSendMsg(serverId int32, key string, req *SendMsgReq) (*SendMsgRe
 
 		for _, groupUser := range groupUsers {
 			// 排除自身
-			if groupUser.UserId == userId {
+			if groupUser == userId {
 				continue
 			}
-			targetUserIds = append(targetUserIds, groupUser.UserId)
+			targetUserIds = append(targetUserIds, groupUser)
 		}
 	} else {
 		log.Error("unknown target type.target:%d, appid:%s", req.TargetType, appId)
